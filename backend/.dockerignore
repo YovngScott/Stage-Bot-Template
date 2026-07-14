@@ -1,0 +1,10 @@
+# No subir al build de Docker: se instalan limpio en la imagen (Linux) y los
+# secretos/sesión no deben ir en la imagen.
+node_modules
+.baileys_auth
+.env
+.env.*
+dist
+build
+*.log
+npm-debug.log*

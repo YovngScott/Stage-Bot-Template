@@ -1,0 +1,42 @@
+# fly.toml — plantilla. Este backend es MULTI-CLIENTE: una sola app de Fly
+# sirve a todos los tenants (ver config/tenants/*.json), así que normalmente
+# solo necesitas UN despliegue de este repo para toda la operación, no uno
+# por cliente. Cambia el nombre de la app la primera vez con `fly launch`
+# o `fly apps create <tu-nombre>`.
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'stage-bot-template'
+primary_region = 'ewr'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  BAILEYS_AUTH_DIR = '/data/.baileys_auth'
+  PORT = '8080'
+
+[[mounts]]
+  source = 'bot_data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '90s'
+    method = 'GET'
+    path = '/health'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+  cpus = 1
+  memory_mb = 512

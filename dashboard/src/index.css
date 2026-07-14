@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+/* Consola oscura (estilo Owner Console). Tema comprometido en oscuro:
+   los gráficos leen estos tokens vía getComputedStyle. */
+:root {
+  --page: #0a0a0b; /* fondo de la app */
+  --sidebar: #0c0c0e; /* barra lateral */
+  --surface-1: #141417; /* tarjetas */
+  --surface-2: #1b1b20; /* hover / anidado */
+  --surface-3: #232329; /* chips / inputs */
+
+  --text-primary: #f4f4f5;
+  --text-secondary: #a1a1aa;
+  --text-muted: #6c6c76;
+
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+
+  --accent: #3b82f6; /* azul de acento */
+  --accent-soft: rgba(59, 130, 246, 0.14);
+
+  --good: #34d399; /* verde positivo */
+  --good-soft: rgba(52, 211, 153, 0.13);
+  --bad: #f87171; /* rojo negativo */
+
+  /* Tokens de gráficos */
+  --series-1: #3b82f6; /* azul — serie principal (ingresos/actividad) */
+  --series-2: #34d399; /* verde — serie secundaria */
+  --seq-300: #93c5fd;
+  --seq-450: #3b82f6;
+  --seq-600: #1d4ed8;
+  --grid: rgba(255, 255, 255, 0.06);
+  --baseline: rgba(255, 255, 255, 0.18);
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+/* Etiqueta pequeña en mayúsculas (eyebrow / labels de tarjetas). */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Pastilla de estado. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border-strong);
+}
+
+/* Item de navegación de la barra lateral. */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: background 0.15s, color 0.15s;
+}
+.nav-item:hover {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+.nav-item[data-activo="true"] {
+  background: var(--surface-2);
+  color: var(--text-primary);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Chip de icono (esquina de las tarjetas de métrica). */
+.icon-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}

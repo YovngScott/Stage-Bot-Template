@@ -1,0 +1,19 @@
+# Configuración de Netlify para el panel (dashboard) de un cliente. Cada
+# cliente nuevo despliega ESTE MISMO código en su propio sitio de Netlify,
+# con sus propias variables VITE_* (URL/anon key de Supabase, slug del
+# tenant, VITE_API_URL) — ver dashboard/.env.example.
+# El repo tiene backend/ y dashboard/ en la raíz; este archivo le dice a
+# Netlify que el sitio a construir vive en dashboard/.
+[build]
+  base = "dashboard"
+  command = "npm run build"
+  # Relativo a "base" (dashboard/): NO repetir "dashboard/" aquí, si no
+  # Netlify busca dashboard/dashboard/dist y falla.
+  publish = "dist"
+
+# SPA de React: cualquier ruta debe servir index.html (React Router lo maneja
+# del lado del cliente).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

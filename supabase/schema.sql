@@ -299,8 +299,8 @@ from mensajes m
 join clientes c on c.id = m.cliente_id
 where m.rol = 'cliente'
   and m.creado_en >= now() - interval '30 days'
-group by m.tenant_id, 1
-order by 1;
+group by m.tenant_id, (date_trunc('day', m.creado_en))::date
+order by 2;
 
 -- ----------------------------------------------------------------------------
 -- 8. ROW LEVEL SECURITY

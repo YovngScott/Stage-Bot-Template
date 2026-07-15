@@ -51,14 +51,31 @@ WhatsApp cliente N ─┼─▶ sesión Baileys N ─┘        │           �
    WhatsApp nueva para el cliente nuevo — las de los demás clientes siguen intactas.
 4. **Vincular WhatsApp**: desde el dashboard del cliente (o `GET /api/<slug>/whatsapp/status`),
    escanea el QR o pide un código de emparejamiento.
-5. **Dashboard del cliente**: despliega `dashboard/` en un sitio nuevo (Netlify/Vercel) con sus
-   propias variables `VITE_*` — ver `dashboard/.env.example`. Crea su usuario de Supabase Auth
-   (Authentication → Users) y una fila en `tenant_admins` (`user_id`, `tenant_id`) para que
-   pueda entrar y solo vea SUS datos.
+5. **Dashboard del cliente**: despliega `dashboard/` en un sitio nuevo de **Cloudflare Pages**
+   (recomendado — ver nota de hosting abajo) con sus propias variables `VITE_*` — ver
+   `dashboard/.env.example`. Crea su usuario de Supabase Auth (Authentication → Users) y una fila
+   en `tenant_admins` (`user_id`, `tenant_id`) para que pueda entrar y solo vea SUS datos.
 6. **Catálogo**: carga sus productos/servicios a mano desde el dashboard (pestaña "Archivos",
    Excel/CSV genérico: `nombre`, `precio` obligatorias) o por la API.
 
 Nada de esto requiere un proyecto de Supabase nuevo, ni una app de Fly.io nueva, ni tocar código.
+
+### Nota de hosting del dashboard (por qué Cloudflare Pages, no Netlify/Vercel)
+
+El modelo de "un sitio desplegado por cliente" con Netlify o Vercel funciona, pero sus planes
+gratis limitan **builds/despliegues y ancho de banda por CUENTA**, no por sitio — con muchos
+clientes en la misma cuenta de Stage AI Labs, esas cuotas se agotan rápido y bloquean nuevos
+despliegues. **Cloudflare Pages** resuelve esto: ancho de banda y solicitudes ilimitadas gratis, y
+500 builds/mes (compartidos entre todos los sitios, pero de sobra para desplegar clientes nuevos
+uno a uno). El código del dashboard no cambia — es el mismo build de Vite (`npm run build` →
+`dist/`), solo cambia dónde se aloja:
+
+1. En Cloudflare Pages, conecta el repo (o sube `dist/` directo con `wrangler pages deploy`).
+2. Framework preset: Vite. Build command: `npm run build`. Output directory: `dist`.
+3. Variables de entorno del proyecto: las mismas `VITE_*` de siempre (`VITE_SUPABASE_URL`,
+   `VITE_SUPABASE_ANON_KEY`, `VITE_TENANT_SLUG`, `VITE_API_URL`, `VITE_NEGOCIO_*`).
+4. Cloudflare te da un link gratis tipo `https://<proyecto>.pages.dev` — ahí es donde entra el
+   dueño del negocio a su dashboard.
 
 ## Aislamiento entre clientes
 

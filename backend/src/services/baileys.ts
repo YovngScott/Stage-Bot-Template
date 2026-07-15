@@ -246,7 +246,10 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
 
   const respuesta = await generarRespuesta(tenant, cliente, historial, texto);
 
-  const esperaMs = Math.min(6000 + respuesta.texto.length * 45, 12000);
+  // Retraso "humano" fijo de 5 segundos antes de responder (mostrando el
+  // indicador "escribiendo…"): responder al instante hace que WhatsApp marque
+  // la cuenta como bot. 5s es suficiente para verse natural sin hacer esperar.
+  const esperaMs = 5000;
   if (sock) await sock.sendPresenceUpdate("composing", remoteJid).catch(() => {});
   await new Promise((r) => setTimeout(r, esperaMs));
 

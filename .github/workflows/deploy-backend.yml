@@ -1,0 +1,85 @@
+# Despliega el backend multi-cliente a Fly.io automáticamente al hacer push.
+# Esto es lo que permite agregar/editar un cliente desde el celular: editas el
+# archivo en github.com, confirmas el cambio, y este workflow corre el deploy
+# solo — sin necesidad de una computadora con el CLI de Fly instalado.
+#
+# REQUISITO (una sola vez):
+#   1. En tu máquina, genera un token de despliegue de Fly:
+#        fly tokens create deploy -x 999999h
+#   2. En GitHub: Settings → Secrets and variables → Actions → New repository
+#      secret. Nombre: FLY_API_TOKEN. Valor: el token del paso 1.
+#
+# Después de eso, cada push que toque backend/ redepliega el backend solo
+# (la app destino sale de backend/fly.toml). También puedes dispararlo a mano
+# desde la pestaña Actions ("Run workflow"), útil desde el celular.
+
+name: Desplegar backend a Fly.io
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    name: fly deploy
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-backend
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Verificar token de Fly
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::error::El secret FLY_API_TOKEN no existe o está vacío. Créalo en Settings → Secrets and variables → Actions con ese nombre exacto."
+            echo "### ❌ Falta FLY_API_TOKEN" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "Token presente (longitud ${#FLY_API_TOKEN})."
+          flyctl version
+          if flyctl auth whoami; then
+            echo "### ✅ Token válido — autenticado en Fly" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::FLY_API_TOKEN está presente pero Fly lo rechazó (inválido/expirado). Genera uno nuevo y actualiza el secret."
+            echo "### ❌ FLY_API_TOKEN inválido (Fly lo rechazó)" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - name: Validar los archivos de configuración de los clientes
+        run: |
+          fallo=0
+          for f in backend/config/tenants/*.json; do
+            if ! node -e "JSON.parse(require('fs').readFileSync('$f','utf8'))" 2>/dev/null; then
+              echo "::error file=$f::JSON inválido — revisa comas, comillas o llaves. No se desplegará nada."
+              fallo=1
+            fi
+          done
+          if [ "$fallo" -ne 0 ]; then
+            echo "### ❌ Hay un archivo de cliente con JSON inválido" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "### ✅ Todos los config/tenants/*.json son válidos" >> "$GITHUB_STEP_SUMMARY"
+      - name: Desplegar
+        working-directory: backend
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only
+      - name: Verificar que el backend responde
+        run: |
+          sleep 15
+          respuesta=$(curl -sf https://wiltech-bot.fly.dev/health || echo "SIN_RESPUESTA")
+          echo "Respuesta de /health: $respuesta"
+          if echo "$respuesta" | grep -q '"ok":true'; then
+            echo "### ✅ Backend arriba — $respuesta" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::El backend no respondió correctamente tras el deploy: $respuesta"
+            echo "### ❌ El backend no respondió tras el deploy" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

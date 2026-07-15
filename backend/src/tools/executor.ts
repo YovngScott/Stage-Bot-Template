@@ -95,8 +95,8 @@ export async function ejecutarTool(
           cliente_id: cliente.id,
           categoria: input.categoria,
           pregunta: String(input.pregunta ?? "").toLowerCase().trim(),
-          servicio_texto: input.servicio_texto ?? null,
-          servicio_id: input.servicio_id ?? null,
+          servicio_texto: input.servicio_texto || null,
+          servicio_id: input.servicio_id || null,
         });
         if (error) throw error;
         return { resultado: "Consulta registrada.", esError: false };

@@ -287,6 +287,21 @@ select tenant_id, estado, count(*) as total
 from clientes
 group by tenant_id, estado;
 
+create or replace view v_clientes_por_dia as
+select
+  m.tenant_id,
+  (date_trunc('day', m.creado_en))::date as dia,
+  count(distinct m.cliente_id)           as activos,
+  count(distinct m.cliente_id) filter (
+    where c.creado_en >= date_trunc('day', m.creado_en)
+  )                                       as nuevos
+from mensajes m
+join clientes c on c.id = m.cliente_id
+where m.rol = 'cliente'
+  and m.creado_en >= now() - interval '30 days'
+group by m.tenant_id, 1
+order by 1;
+
 -- ----------------------------------------------------------------------------
 -- 8. ROW LEVEL SECURITY
 --    Backend: service_role key (bypassa RLS). Dashboard: Supabase Auth

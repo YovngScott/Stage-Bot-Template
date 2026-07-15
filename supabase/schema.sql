@@ -267,7 +267,7 @@ select
 from consultas_analiticas c
 left join servicios s on s.id = c.servicio_id
 where c.categoria in ('precio', 'disponibilidad')
-group by c.tenant_id, 1
+group by c.tenant_id, coalesce(s.nombre, c.servicio_texto, 'Desconocido')
 order by veces_preguntada desc;
 
 create or replace view v_preguntas_frecuentes as

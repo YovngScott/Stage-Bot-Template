@@ -234,6 +234,7 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
   if (solicitaAtencionHumana(texto)) {
     await actualizarEstadoCliente(tenant.id, cliente.id, "requiere_humano");
     const respuestaTransferencia = RESPUESTA_TRANSFERENCIA_TPL(tenant.config.nombre);
+    if (!(await tenantBotActivo(tenant.id))) return;
     await sock?.sendMessage(remoteJid, { text: respuestaTransferencia });
     await guardarMensaje({
       tenant_id: tenant.id,
@@ -252,6 +253,11 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
   const esperaMs = 5000;
   if (sock) await sock.sendPresenceUpdate("composing", remoteJid).catch(() => {});
   await new Promise((r) => setTimeout(r, esperaMs));
+
+  // Revisa de nuevo justo antes de enviar. Si el owner apaga el bot mientras
+  // Gemini/Groq estaba pensando o durante el delay humano, no debe salir una
+  // respuesta "atrasada" después de apagado.
+  if (!(await tenantBotActivo(tenant.id))) return;
 
   await sock?.sendMessage(remoteJid, { text: respuesta.texto });
 

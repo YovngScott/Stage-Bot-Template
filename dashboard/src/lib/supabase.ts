@@ -11,7 +11,13 @@ import { createClient } from "@supabase/supabase-js";
  */
 const URL_SUPABASE = import.meta.env.VITE_SUPABASE_URL as string;
 const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-export const TENANT_SLUG = (import.meta.env.VITE_TENANT_SLUG as string) || "";
+// Un único build online puede atender a varios clientes. En producción el
+// Owner Console añade ?tenant=<slug>; VITE_TENANT_SLUG sigue siendo válido
+// para builds dedicados y para desarrollo local.
+const tenantFromUrl = typeof window !== "undefined"
+  ? new URLSearchParams(window.location.search).get("tenant")
+  : "";
+export const TENANT_SLUG = (tenantFromUrl || (import.meta.env.VITE_TENANT_SLUG as string) || "").trim().toLowerCase();
 
 if (!URL_SUPABASE || !ANON_KEY) {
   console.error(

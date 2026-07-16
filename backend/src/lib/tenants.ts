@@ -85,6 +85,12 @@ function cargarConfigsDeDisco(): TenantConfig[] {
 
 let tenantsCache: Map<string, Tenant> | null = null;
 
+// Overrides de corta duración para que un apagado desde el Owner Console sea
+// efectivo inmediatamente, sin esperar otra lectura de red a Supabase. Se
+// sincronizan con la base en establecerBotActivo() y se usan también para
+// cortar respuestas que ya estaban esperando en la cola de WhatsApp.
+const estadoBotEnMemoria = new Map<string, boolean>();
+
 /**
  * Carga los archivos de config, asegura que cada uno tenga su fila en
  * `tenants` (la crea si es la primera vez que arranca), y arma el registro en
@@ -142,13 +148,26 @@ export function obtenerTenant(slug: string): Tenant | undefined {
 /** ¿bot_activo de este tenant? Consulta fresca a Supabase (no cacheada: la
  * apaga/prende Stage AI Labs remotamente y debe reflejarse de inmediato). */
 export async function tenantBotActivo(tenantId: string): Promise<boolean> {
+  const override = estadoBotEnMemoria.get(tenantId);
+  if (override !== undefined) return override;
+
   const { data, error } = await supabase.from("tenants").select("bot_activo").eq("id", tenantId).maybeSingle();
-  if (error || !data) return true; // fallar "abierto": un error transitorio no debe silenciar el bot
-  return Boolean(data.bot_activo);
+  if (error || !data) {
+    // Fallar cerrado: un error de red/credenciales nunca debe permitir que un
+    // bot apagado siga contestando por WhatsApp.
+    console.error(`[tenants] No se pudo leer bot_activo para ${tenantId}; se bloquean respuestas por seguridad.`, error);
+    return false;
+  }
+  const activo = Boolean(data.bot_activo);
+  estadoBotEnMemoria.set(tenantId, activo);
+  return activo;
 }
 
 /** Enciende/apaga el bot de un tenant (llamado desde Stage AI Labs vía routes/config.ts). */
 export async function establecerBotActivo(tenantId: string, activo: boolean): Promise<void> {
   const { error } = await supabase.from("tenants").update({ bot_activo: activo }).eq("id", tenantId);
   if (error) throw error;
+  // Solo se publica después de que Supabase confirmó el cambio. Desde aquí,
+  // todas las comprobaciones del worker ven el nuevo valor de inmediato.
+  estadoBotEnMemoria.set(tenantId, activo);
 }

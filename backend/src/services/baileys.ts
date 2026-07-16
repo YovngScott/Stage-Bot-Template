@@ -47,6 +47,10 @@ interface Sesion {
 }
 
 const sesiones = new Map<string, Sesion>(); // key: tenant.id
+// Tenants que fueron dados de baja desde Owner Console. El flag evita que el
+// listener de Baileys vuelva a reconectar automáticamente después de cerrar la
+// sesión y borrar sus credenciales.
+const sesionesDesactivadas = new Set<string>();
 
 function authDirDe(tenant: Tenant): string {
   return path.resolve(config.baileysAuthDirBase, tenant.config.slug);
@@ -58,6 +62,32 @@ function estadoInicial(): EstadoWhatsApp {
 
 export function obtenerEstadoWhatsApp(tenantId: string): EstadoWhatsApp | null {
   return sesiones.get(tenantId)?.estado ?? null;
+}
+
+/**
+ * Cierra la conexión de WhatsApp de un tenant y elimina sus credenciales
+ * locales. Se usa para una baja: el bot deja de responder y el número debe
+ * volver a escanear un QR para ser conectado otra vez.
+ */
+export async function desconectarWhatsApp(tenant: Tenant): Promise<void> {
+  sesionesDesactivadas.add(tenant.id);
+  const sesion = sesiones.get(tenant.id);
+  if (sesion?.sock) {
+    try {
+      // logout invalida la sesión remota en WhatsApp; end corta el socket aun
+      // si WhatsApp no responde a tiempo.
+      await sesion.sock.logout();
+    } catch (err) {
+      console.warn(`[whatsapp:${tenant.config.slug}] No se pudo cerrar sesión remota:`, err);
+    }
+    try {
+      await sesion.sock.end(undefined);
+    } catch {
+      // El socket ya puede haberse cerrado por logout.
+    }
+  }
+  sesiones.delete(tenant.id);
+  await fs.promises.rm(authDirDe(tenant), { recursive: true, force: true });
 }
 
 export async function solicitarCodigoEmparejamiento(tenantId: string, numero: string): Promise<string> {
@@ -77,6 +107,9 @@ export async function solicitarCodigoEmparejamiento(tenantId: string, numero: st
 
 /** Inicia (o reinicia) la conexión de WhatsApp de UN tenant. */
 export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
+  // Al encender el bot se permite otra vez iniciar una sesión limpia y mostrar
+  // el QR. Desactivar no intenta reconectarlo por sí solo.
+  sesionesDesactivadas.delete(tenant.id);
   const authDir = authDirDe(tenant);
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
   const { version } = await fetchLatestBaileysVersion();
@@ -114,6 +147,12 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
       s.estado.conectado = false;
       s.estado.numero = null;
       s.estado.actualizadoEn = Date.now();
+
+      if (sesionesDesactivadas.has(tenant.id)) {
+        s.estado.qrDataUrl = null;
+        s.estado.pairingCode = null;
+        return;
+      }
 
       if (statusCode === DisconnectReason.loggedOut) {
         console.warn(`[whatsapp:${tenant.config.slug}] Sesión inválida (401). Borrando credenciales y reiniciando limpio…`);

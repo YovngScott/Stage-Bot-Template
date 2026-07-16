@@ -273,6 +273,9 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
 
 /** Envía un mensaje de texto a un número (formato E.164) desde el WhatsApp de un tenant. */
 export async function enviarMensajeTexto(tenantId: string, telefono: string, texto: string): Promise<void> {
+  // El apagado debe ser absoluto: también bloquea recordatorios, confirmaciones
+  // y cualquier envío iniciado fuera del manejador de mensajes entrantes.
+  if (!(await tenantBotActivo(tenantId))) return;
   const sesion = sesiones.get(tenantId);
   if (!sesion?.sock) throw new Error("WhatsApp no está conectado todavía para este cliente.");
   const jid = telefono.replace(/[^\d]/g, "") + "@s.whatsapp.net";

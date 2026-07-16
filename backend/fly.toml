@@ -16,6 +16,9 @@ primary_region = 'ewr'
 [env]
   BAILEYS_AUTH_DIR = '/data/.baileys_auth'
   PORT = '8080'
+  # Esta app histórica conserva solamente los dos clientes ya instalados.
+  # Los nuevos bots se crean como apps Fly independientes desde Owner Console.
+  TENANT_SLUGS = 'dominguez-auto-pintura,wiltech'
 
 [[mounts]]
   source = 'bot_data'

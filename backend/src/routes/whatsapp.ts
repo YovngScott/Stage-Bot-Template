@@ -1,13 +1,25 @@
 import { Router, type Request, type Response } from "express";
 import { requiereAdmin } from "../lib/adminAuth.js";
+import { config } from "../lib/config.js";
 import { obtenerEstadoWhatsApp, solicitarCodigoEmparejamiento } from "../services/baileys.js";
 import { marcarClienteAtendido } from "../services/clientes.js";
 
 export const whatsappRouter = Router({ mergeParams: true });
 
+function tienePlataforma(req: Request): boolean {
+  return Boolean(config.plataforma.secreto) && req.header("x-platform-secret") === config.plataforma.secreto;
+}
+
 /** GET /api/:slug/whatsapp/status */
-whatsappRouter.get("/status", requiereAdmin, (req: Request, res: Response) => {
-  res.json(obtenerEstadoWhatsApp(req.tenant!.id) ?? { conectado: false, numero: null, qrDataUrl: null, pairingCode: null, actualizadoEn: 0 });
+whatsappRouter.get("/status", (req: Request, res: Response) => {
+  const responder = () =>
+    res.json(obtenerEstadoWhatsApp(req.tenant!.id) ?? { conectado: false, numero: null, qrDataUrl: null, pairingCode: null, actualizadoEn: 0 });
+
+  // El Owner Console se ejecuta solo en el equipo de Stage AI Labs y usa el
+  // secreto de plataforma. Así puede mostrar el QR sin tener que crear antes
+  // una sesión de administrador para el cliente.
+  if (tienePlataforma(req)) return responder();
+  requiereAdmin(req, res, responder);
 });
 
 /** POST /api/:slug/whatsapp/solicitar-codigo — body: { numero } */

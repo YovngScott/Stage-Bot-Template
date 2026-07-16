@@ -38,9 +38,19 @@ function cargarConfigsDeDisco(): TenantConfig[] {
     console.warn(`[tenants] No existe la carpeta de configuración: ${CONFIG_DIR}`);
     return [];
   }
+  const slugsPermitidos = new Set(
+    (process.env.TENANT_SLUGS ?? "")
+      .split(",")
+      .map((slug) => slug.trim().toLowerCase())
+      .filter(Boolean),
+  );
+
   const archivos = fs
     .readdirSync(CONFIG_DIR)
-    .filter((f) => f.endsWith(".json") && !f.startsWith("_"));
+    .filter((f) => f.endsWith(".json") && !f.startsWith("_"))
+    // Una app dedicada solo debe iniciar la sesión de WhatsApp de su propio
+    // cliente. La app histórica puede declarar varios slugs separados por coma.
+    .filter((f) => slugsPermitidos.size === 0 || slugsPermitidos.has(path.basename(f, ".json").toLowerCase()));
 
   const configs: TenantConfig[] = [];
   for (const archivo of archivos) {

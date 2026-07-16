@@ -7,7 +7,7 @@ import type { Cliente } from "../lib/supabase.js";
  * genéricos viven aquí; lo específico de cada negocio sale de su
  * config/tenants/<slug>.json — incluyendo `promptExtra`, un bloque de texto
  * libre que cada cliente puede usar para instrucciones de su propio rubro
- * (ver config/tenants/_ejemplo.json) sin tocar código.
+ * (ver los JSON activos en config/tenants/) sin tocar código.
  */
 export function systemPrompt(tenant: Tenant, cliente: Cliente): string {
   const { config: n } = tenant;

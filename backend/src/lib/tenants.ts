@@ -5,8 +5,7 @@ import { supabase } from "./supabase.js";
 
 /**
  * Configuración de UN cliente (tenant), cargada desde
- * config/tenants/<slug>.json. Ver config/tenants/_ejemplo.json para el
- * formato completo y comentado.
+ * config/tenants/<slug>.json. El formato se documenta en README.md.
  */
 export interface TenantConfig {
   slug: string;

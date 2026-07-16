@@ -41,8 +41,8 @@ WhatsApp cliente N ─┼─▶ sesión Baileys N ─┘        │           �
 
 ## Cómo onboardear un cliente NUEVO (sin crear infraestructura)
 
-1. **Config del negocio**: copia `backend/config/tenants/_ejemplo.json` a
-   `backend/config/tenants/<slug>.json` y llena sus datos (nombre, horario, prompt, etc.). El
+1. **Config del negocio**: crea `backend/config/tenants/<slug>.json` usando uno de los tenants
+   activos como referencia y llena sus datos (nombre, horario, prompt, etc.). El
    `slug` debe ser único y coincidir con el nombre del archivo.
 2. **Correr el schema**: `supabase/schema.sql` es idempotente — si el proyecto de Supabase
    compartido ya existe, no hace falta volver a crearlo, solo re-correrlo si hay cambios.

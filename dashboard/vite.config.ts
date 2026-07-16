@@ -5,9 +5,10 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    port: 5173,
+    host: "127.0.0.1",
+    port: 5174,
     // Si el 5173 está ocupado, avisa y no salta a otro puerto en silencio
     // (así el navegador siempre apunta al mismo sitio).
-    strictPort: false,
+    strictPort: true,
   },
 });

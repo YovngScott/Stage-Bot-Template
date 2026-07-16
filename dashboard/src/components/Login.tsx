@@ -2,14 +2,15 @@ import { useState } from "react";
 import { login } from "../lib/api";
 import { Logo } from "./Logo";
 import { IconWarning } from "./Icons";
-import { negocio } from "../lib/negocio";
+import type { Negocio } from "../lib/negocio";
 
 interface Props {
+  negocio: Negocio;
   onLogin: () => void;
 }
 
 /** Pantalla de acceso: Supabase Auth (correo/contraseña) para el dashboard. */
-export function Login({ onLogin }: Props) {
+export function Login({ negocio, onLogin }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [cargando, setCargando] = useState(false);

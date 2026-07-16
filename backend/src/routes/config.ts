@@ -10,6 +10,21 @@ function tienePlataforma(req: Request): boolean {
 }
 
 /**
+ * Identidad pública mínima para el dashboard compartido. No expone secretos,
+ * prompts ni correos; solo evita que una marca fijada en un build antiguo se
+ * muestre al abrir otro tenant mediante ?tenant=<slug>.
+ */
+configRouter.get("/branding", (req: Request, res: Response) => {
+  const tenant = req.tenant!;
+  res.json({
+    slug: tenant.config.slug,
+    nombre: tenant.config.nombre,
+    nombreBot: tenant.config.nombreBot,
+    subtitulo: "Consola del bot",
+  });
+});
+
+/**
  * GET /api/:slug/config/bot-activo — estado actual del interruptor del bot
  * de este tenant. Acepta el secreto de plataforma (Stage AI Labs consultando
  * antes de mostrar el switch) o una sesión de admin de este tenant.

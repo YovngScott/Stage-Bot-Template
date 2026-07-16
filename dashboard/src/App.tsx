@@ -14,7 +14,7 @@ import { Logo } from "./components/Logo";
 import { Login } from "./components/Login";
 import { adminFetch, logout, verificarAcceso, type EstadoAcceso } from "./lib/api";
 import { supabase } from "./lib/supabase";
-import { negocio } from "./lib/negocio";
+import { cargarNegocio, negocioInicial, type Negocio } from "./lib/negocio";
 import {
   IconChart,
   IconPlug,
@@ -48,6 +48,7 @@ const MES_ANIO = new Date()
   .toUpperCase();
 
 export default function App() {
+  const [negocio, setNegocio] = useState<Negocio>(() => negocioInicial());
   const [autenticado, setAutenticado] = useState<boolean | null>(null);
   const [acceso, setAcceso] = useState<EstadoAcceso | null>(null);
   const [email, setEmail] = useState<string | null>(null);
@@ -71,6 +72,12 @@ export default function App() {
   } = useDashboardData();
 
   useEffect(() => {
+    void cargarNegocio().then((datos) => {
+      if (!datos) return;
+      setNegocio(datos);
+      document.title = `${datos.nombre} — Dashboard`;
+    });
+
     supabase.auth.getSession().then(({ data }) => {
       setAutenticado(Boolean(data.session));
       setEmail(data.session?.user?.email ?? null);
@@ -121,7 +128,7 @@ export default function App() {
   }
 
   if (!autenticado) {
-    return <Login onLogin={() => setAutenticado(true)} />;
+    return <Login negocio={negocio} onLogin={() => setAutenticado(true)} />;
   }
 
   if (acceso === null) {

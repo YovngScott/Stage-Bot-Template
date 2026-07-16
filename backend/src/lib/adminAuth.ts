@@ -6,8 +6,9 @@ import { supabase } from "./supabase.js";
  * Protege un endpoint de UN tenant (montado tras `resolverTenant`, que ya
  * adjuntó `req.tenant`) exigiendo una sesión válida de Supabase Auth. El
  * correo debe estar en `adminEmails` de ESE tenant (config/tenants/<slug>.json)
- * — así el dueño de un negocio no puede gestionar el bot de otro — O ser un
- * súper-admin de Stage AI Labs (tabla `super_admins`, gestiona todos).
+ * o tener una fila en `tenant_admins` para ESE tenant. La segunda vía es la
+ * que permite al Owner Console crear, editar y revocar usuarios sin volver a
+ * desplegar el bot. También puede ser un súper-admin de Stage AI Labs.
  */
 export async function requiereAdmin(req: Request, res: Response, next: NextFunction) {
   const tenant = req.tenant;
@@ -29,6 +30,18 @@ export async function requiereAdmin(req: Request, res: Response, next: NextFunct
     }
 
     if (tenant.config.adminEmails.includes(email)) return next();
+
+    const { data: esAdminDelTenant, error: errorTenantAdmin } = await supabase
+      .from("tenant_admins")
+      .select("user_id")
+      .eq("user_id", data.user.id)
+      .eq("tenant_id", tenant.id)
+      .maybeSingle();
+    if (errorTenantAdmin) {
+      console.error("[adminAuth] Error consultando tenant_admins:", errorTenantAdmin);
+      return res.status(500).json({ error: "No se pudo verificar el acceso del cliente." });
+    }
+    if (esAdminDelTenant) return next();
 
     const { data: esSuperAdmin } = await supabase
       .from("super_admins")

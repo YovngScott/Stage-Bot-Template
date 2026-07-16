@@ -1,6 +1,30 @@
 import { supabase, TENANT_SLUG } from "./supabase";
 
-const API_URL = import.meta.env.VITE_API_URL as string;
+const configuredApiUrl = (import.meta.env.VITE_API_URL as string) || "";
+
+/**
+ * The shared dashboard is deployed once, while every client gets its own Fly
+ * app. The Owner Console adds `?api=https://stage-<tenant>-<kind>.fly.dev` to
+ * the link. Restrict it to that tenant's dedicated Fly hostname so a crafted
+ * URL cannot redirect authenticated dashboard requests elsewhere.
+ */
+function runtimeApiUrl(): string {
+  if (typeof window === "undefined" || !TENANT_SLUG) return "";
+  const value = new URLSearchParams(window.location.search).get("api")?.trim();
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    const expectedPrefix = `stage-${TENANT_SLUG}-`;
+    const isDedicatedTenantApp = url.protocol === "https:"
+      && url.hostname.endsWith(".fly.dev")
+      && url.hostname.startsWith(expectedPrefix);
+    return isDedicatedTenantApp ? url.origin : "";
+  } catch {
+    return "";
+  }
+}
+
+const API_URL = runtimeApiUrl() || configuredApiUrl;
 
 export function getApiUrl(): string {
   return API_URL;

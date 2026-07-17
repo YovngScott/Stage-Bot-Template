@@ -10,8 +10,22 @@ import { generarRespuesta as conGemini } from "./gemini.js";
  * respaldo automático si Groq alcanza su límite gratuito.
  */
 export async function generarRespuesta(tenant: Tenant, cliente: Cliente, historial: Mensaje[], mensaje: string) {
+  const respaldo = {
+    texto: "Disculpa, se me complicó un poco procesar tu mensaje. Dame un momento y sigo contigo por aquí. 🙏",
+    tokensEntrada: 0,
+    tokensSalida: 0,
+  };
+
+  // Esta función NUNCA debe lanzar: pase lo que pase con los proveedores de
+  // IA, tiene que devolver un texto para que el bot responda algo y no deje
+  // al cliente viendo "escribiendo…" sin respuesta.
   if (config.ai.provider === "gemini") {
-    return conGemini(tenant, cliente, historial, mensaje);
+    try {
+      return await conGemini(tenant, cliente, historial, mensaje);
+    } catch (err) {
+      console.error("[ia] Gemini falló y no hay otro proveedor:", err);
+      return respaldo;
+    }
   }
 
   try {
@@ -19,12 +33,13 @@ export async function generarRespuesta(tenant: Tenant, cliente: Cliente, histori
   } catch (err) {
     console.warn("[ia] Groq no estuvo disponible; intentando responder con Gemini:", err);
     if (config.gemini.apiKey) {
-      return conGemini(tenant, cliente, historial, mensaje);
+      try {
+        return await conGemini(tenant, cliente, historial, mensaje);
+      } catch (err2) {
+        console.error("[ia] Groq y Gemini fallaron ambos:", err2);
+        return respaldo;
+      }
     }
-    return {
-      texto: `Disculpa, en este momento tengo un inconveniente técnico. Un asesor de ${tenant.config.nombre} te responderá en breve por este chat. 🙏`,
-      tokensEntrada: 0,
-      tokensSalida: 0,
-    };
+    return respaldo;
   }
 }

@@ -5,6 +5,7 @@ import type { Tenant } from "../lib/tenants.js";
 import { tools } from "../tools/definitions.js";
 import { ejecutarTool } from "../tools/executor.js";
 import { systemPrompt } from "./prompt.js";
+import { conTimeout } from "../lib/timeout.js";
 
 const ai = new GoogleGenAI({ apiKey: config.gemini.apiKey });
 
@@ -17,7 +18,9 @@ async function generarConReintento(
   let ultimoError: any;
   for (let i = 0; i < intentos; i++) {
     try {
-      return await ai.models.generateContent(params);
+      // Timeout duro de 25s por intento: si Gemini se cuelga, no dejamos el
+      // bot esperando indefinidamente.
+      return await conTimeout(ai.models.generateContent(params), 25000, "Gemini generateContent");
     } catch (err: any) {
       const status = err?.status ?? err?.code;
       const temporal = status === 500 || status === 503;

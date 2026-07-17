@@ -51,6 +51,9 @@ function historialAMensajes(historial: Mensaje[]): MensajeGroq[] {
 
 async function llamarGroq(mensajes: MensajeGroq[], intentos = 4): Promise<any> {
   for (let i = 0; i < intentos; i++) {
+    // Timeout duro: si Groq no responde en 25s, abortamos la petición para no
+    // dejar al bot colgado en "escribiendo…". El error se maneja arriba (ia.ts)
+    // cayendo a Gemini o a un mensaje de respaldo.
     const res = await fetch(GROQ_URL, {
       method: "POST",
       headers: { authorization: `Bearer ${config.groq.apiKey}`, "content-type": "application/json" },
@@ -62,6 +65,7 @@ async function llamarGroq(mensajes: MensajeGroq[], intentos = 4): Promise<any> {
         temperature: 0.2,
         max_tokens: 1024,
       }),
+      signal: AbortSignal.timeout(25000),
     });
     if (res.ok) return res.json();
     const cuerpo = await res.text();

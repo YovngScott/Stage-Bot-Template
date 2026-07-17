@@ -20,6 +20,7 @@ import {
   obtenerHistorial,
 } from "./clientes.js";
 import { generarRespuesta } from "./ia.js";
+import { conTimeout } from "../lib/timeout.js";
 
 const logger = pino({ level: "silent" });
 
@@ -284,7 +285,26 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
     return;
   }
 
-  const respuesta = await generarRespuesta(tenant, cliente, historial, texto);
+  // Generar la respuesta con un tope de tiempo GENERAL (45s). Aunque cada
+  // proveedor de IA ya tiene su propio timeout, este es el cinturón de
+  // seguridad final: pase lo que pase (proveedor colgado, bucle de
+  // herramientas atascado), el bot SIEMPRE continúa y responde algo. Nunca
+  // se queda en "escribiendo…" para siempre.
+  let respuesta: Awaited<ReturnType<typeof generarRespuesta>> | null = null;
+  try {
+    respuesta = await conTimeout(
+      generarRespuesta(tenant, cliente, historial, texto),
+      45000,
+      "generarRespuesta",
+    );
+  } catch (err) {
+    console.error(`[whatsapp][${tenant.config.slug}] Fallo/timeout generando respuesta para ${telefono}:`, err);
+  }
+
+  const textoRespuesta = (respuesta?.texto ?? "").trim();
+  const textoFinal =
+    textoRespuesta ||
+    "Disculpa, tuve un inconveniente técnico procesando tu mensaje. Dame un momento por favor y sigo contigo. 🙏";
 
   // Retraso "humano" fijo de 5 segundos antes de responder (mostrando el
   // indicador "escribiendo…"): responder al instante hace que WhatsApp marque
@@ -298,15 +318,29 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
   // respuesta "atrasada" después de apagado.
   if (!(await tenantBotActivo(tenant.id))) return;
 
-  await sock?.sendMessage(remoteJid, { text: respuesta.texto });
+  // El envío también va protegido: si sendMessage falla, lo registramos pero
+  // no dejamos que tumbe el procesamiento (ni que quede sin log). Reintento
+  // único por si fue un fallo de red puntual.
+  try {
+    await sock?.sendMessage(remoteJid, { text: textoFinal });
+  } catch (err) {
+    console.error(`[whatsapp][${tenant.config.slug}] Error enviando respuesta a ${telefono}, reintentando:`, err);
+    try {
+      await new Promise((r) => setTimeout(r, 1500));
+      await sock?.sendMessage(remoteJid, { text: textoFinal });
+    } catch (err2) {
+      console.error(`[whatsapp][${tenant.config.slug}] Segundo fallo enviando a ${telefono}:`, err2);
+      return; // no guardamos como enviado algo que no salió
+    }
+  }
 
   await guardarMensaje({
     tenant_id: tenant.id,
     cliente_id: cliente.id,
     rol: "bot",
-    contenido: respuesta.texto,
-    tokens_entrada: respuesta.tokensEntrada,
-    tokens_salida: respuesta.tokensSalida,
+    contenido: textoFinal,
+    tokens_entrada: respuesta?.tokensEntrada,
+    tokens_salida: respuesta?.tokensSalida,
   });
 }
 

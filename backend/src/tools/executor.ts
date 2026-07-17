@@ -2,7 +2,7 @@ import { supabase, type Cliente, type EstadoCliente } from "../lib/supabase.js";
 import type { Tenant } from "../lib/tenants.js";
 import { actualizarEstadoCliente } from "../services/clientes.js";
 import { agendarCita, horarioDisponible } from "../services/calendar.js";
-import { notificarStockBajo } from "../services/notificaciones.js";
+import { notificarStockBajo, notificarEmpleados } from "../services/notificaciones.js";
 
 /**
  * Ejecuta la tool solicitada por la IA y devuelve el resultado como string.
@@ -56,11 +56,31 @@ export async function ejecutarTool(
       }
 
       case "etiquetar_cliente": {
-        await actualizarEstadoCliente(tenant.id, cliente.id, input.estado as EstadoCliente, {
-          etiquetas: input.etiquetas,
+        let estado = input.estado as EstadoCliente;
+        const etiquetas: string[] = Array.isArray(input.etiquetas) ? [...input.etiquetas] : [];
+
+        // El bot NUNCA debe silenciarse a sí mismo. Si la IA decide escalar a
+        // un humano, lo registramos como etiqueta + aviso al equipo, pero NO
+        // ponemos el estado 'requiere_humano' (que apaga el bot). Solo una
+        // petición EXPLÍCITA del cliente (detectada en baileys) puede pausar el
+        // bot. Así, en una conversación activa el bot sigue ayudando en vez de
+        // quedarse mudo — que era justo el fallo del bot de Dominguez.
+        if (estado === "requiere_humano") {
+          if (!etiquetas.includes("requiere_humano")) etiquetas.push("requiere_humano");
+          // Conserva su etapa en el embudo; no lo mandamos al estado que muta.
+          estado = cliente.estado === "nuevo" ? "interesado" : cliente.estado;
+          notificarEmpleados(
+            tenant.id,
+            `🔔 El bot sugiere atención humana para ${cliente.nombre || cliente.telefono}.` +
+              (input.notas ? `\nNota: ${input.notas}` : ""),
+          ).catch((err) => console.error("[tools] Error avisando sugerencia de humano:", err));
+        }
+
+        await actualizarEstadoCliente(tenant.id, cliente.id, estado, {
+          etiquetas: etiquetas.length ? etiquetas : undefined,
           notas: input.notas,
         });
-        return { resultado: `Cliente actualizado a estado '${input.estado}'.`, esError: false };
+        return { resultado: `Cliente actualizado a estado '${estado}'.`, esError: false };
       }
 
       case "verificar_disponibilidad": {

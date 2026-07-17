@@ -184,8 +184,12 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
     for (const msg of messages) {
       const s = sesiones.get(tenant.id);
       if (!s) continue;
+      // Cada mensaje se procesa en serie por tenant (la cola conserva el orden
+      // del chat). Un tope de 90s por mensaje evita que UNO colgado (IA, red,
+      // Supabase, envío) bloquee la cola y deje al tenant sin responder a los
+      // siguientes — que era otra forma del fallo "responde y luego se calla".
       s.cola = s.cola
-        .then(() => procesarMensajeEntrante(tenant, msg))
+        .then(() => conTimeout(procesarMensajeEntrante(tenant, msg), 90000, "procesarMensajeEntrante"))
         .catch((err) => console.error(`[whatsapp:${tenant.config.slug}] Error procesando mensaje entrante:`, err));
     }
   });
@@ -262,7 +266,17 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
   // entrantes arriba para no perder historial, pero no respondemos nada.
   if (!(await tenantBotActivo(tenant.id))) return;
 
-  if (cliente.estado === "requiere_humano") return;
+  // El cliente pidió EXPLÍCITAMENTE un humano: pausamos el bot para que un
+  // asesor tome el chat, pero SOLO por una ventana (3h), nunca para siempre.
+  // Si tras esa ventana nadie respondió y el cliente sigue escribiendo, el bot
+  // retoma para no dejarlo abandonado. (La IA ya no puede meter al cliente en
+  // este estado por su cuenta — ver executor.ts; así el bot no se auto-silencia.)
+  if (cliente.estado === "requiere_humano") {
+    const desde = cliente.solicito_humano_en ? new Date(cliente.solicito_humano_en).getTime() : 0;
+    const VENTANA_HUMANO_MS = 3 * 60 * 60 * 1000;
+    if (desde && Date.now() - desde < VENTANA_HUMANO_MS) return; // dentro de la ventana: lo maneja un humano
+    // fuera de la ventana: el bot retoma la conversación.
+  }
 
   const sesion = sesiones.get(tenant.id);
   const sock = sesion?.sock;

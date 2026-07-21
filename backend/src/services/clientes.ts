@@ -66,18 +66,36 @@ export async function actualizarEstadoCliente(
 
 /**
  * Cierra la solicitud de atención humana y devuelve el chat al bot.
+ *
+ * Un cliente puede necesitar atención por dos vías: (1) estado='requiere_humano'
+ * (petición explícita que pausó el bot), o (2) la etiqueta 'requiere_humano'
+ * que la IA agrega SIN pausar el bot. Al marcar atendido limpiamos AMBAS: si
+ * el estado estaba en requiere_humano lo devolvemos a 'interesado' (des-mutea),
+ * y en todos los casos quitamos la etiqueta para que salga del panel.
  */
 export async function marcarClienteAtendido(clienteId: string): Promise<boolean> {
-  const { data, error } = await supabase
+  const { data: actual, error: errorActual } = await supabase
     .from("clientes")
-    .update({ estado: "interesado", atendido_en: new Date().toISOString() })
+    .select("estado, etiquetas")
     .eq("id", clienteId)
-    .eq("estado", "requiere_humano")
-    .select("id")
     .maybeSingle();
+  if (errorActual) throw errorActual;
+  if (!actual) return false;
 
+  const etiquetas: string[] = Array.isArray(actual.etiquetas) ? actual.etiquetas : [];
+  const teniaEtiqueta = etiquetas.includes("requiere_humano");
+  const teniaEstado = actual.estado === "requiere_humano";
+  if (!teniaEtiqueta && !teniaEstado) return false; // no había nada que atender
+
+  const cambios: Record<string, unknown> = {
+    atendido_en: new Date().toISOString(),
+    etiquetas: etiquetas.filter((e) => e !== "requiere_humano"),
+  };
+  if (teniaEstado) cambios.estado = "interesado";
+
+  const { error } = await supabase.from("clientes").update(cambios).eq("id", clienteId);
   if (error) throw error;
-  return data !== null;
+  return true;
 }
 
 /** Guarda un mensaje del historial. Devuelve el id insertado. */

@@ -87,6 +87,110 @@ function normalizarFila(fila: Record<string, any>): FilaServicio | null {
   };
 }
 
+export interface ResultadoPreciosStock {
+  archivo: string;
+  filasLeidas: number;
+  actualizadas: number;
+  noEncontradas: number;
+  descartadas: number;
+  errores: string[];
+}
+
+/**
+ * Actualización SEGURA de solo precios y/o stock. A diferencia del importador
+ * de catálogo completo (que sobrescribe descripción, categoría, etc. con lo que
+ * traiga el archivo), esta SOLO toca los campos precio/stock que vengan en cada
+ * fila — nunca borra el resto. No inserta productos nuevos: empareja por nombre
+ * con los que ya existen. Pensada para el drop rápido de "precios y stock".
+ */
+export async function procesarPreciosStock(
+  tenantId: string,
+  file: Express.Multer.File,
+): Promise<ResultadoPreciosStock> {
+  const ext = (file.originalname.split(".").pop() ?? "").toLowerCase();
+  if (!["csv", "xlsx", "xls"].includes(ext)) {
+    throw new Error(`Formato .${ext} no soportado. Sube Excel (.xlsx/.xls) o CSV.`);
+  }
+
+  const libro = XLSX.read(file.buffer, { type: "buffer" });
+  const filasCrudas = leerFilas(libro.Sheets[libro.SheetNames[0]]);
+
+  const resultado: ResultadoPreciosStock = {
+    archivo: file.originalname,
+    filasLeidas: filasCrudas.length,
+    actualizadas: 0,
+    noEncontradas: 0,
+    descartadas: 0,
+    errores: [],
+  };
+
+  // Parseamos cada fila: nombre (obligatorio) + al menos uno de precio/stock.
+  interface CambioPS {
+    nombre: string;
+    precio?: number;
+    stock?: number;
+  }
+  const cambios: CambioPS[] = [];
+  for (const fila of filasCrudas) {
+    const nombre = String(campo(fila, "nombre", "producto", "servicio", "name") ?? "").trim();
+    const precioRaw = campo(fila, "precio", "price", "costo");
+    const stockRaw = campo(fila, "stock", "existencia", "cantidad", "qty");
+    const precio = precioRaw !== undefined ? aNumero(precioRaw) : undefined;
+    const stock = stockRaw !== undefined ? aNumero(stockRaw) : undefined;
+    const tienePrecio = precio !== undefined && Number.isFinite(precio) && precio >= 0;
+    const tieneStock = stock !== undefined && Number.isFinite(stock) && stock >= 0;
+    if (!nombre || (!tienePrecio && !tieneStock)) {
+      resultado.descartadas++;
+      continue;
+    }
+    cambios.push({
+      nombre,
+      precio: tienePrecio ? precio : undefined,
+      stock: tieneStock ? Math.trunc(stock as number) : undefined,
+    });
+  }
+
+  if (cambios.length === 0) {
+    resultado.errores.push(
+      "No reconocí filas válidas. Se espera: nombre (obligatorio) y al menos precio o stock.",
+    );
+    return resultado;
+  }
+
+  const { data: existentes, error: errorExistentes } = await supabase
+    .from("servicios")
+    .select("id, nombre")
+    .eq("tenant_id", tenantId);
+  if (errorExistentes) throw errorExistentes;
+
+  const indice = new Map<string, string>();
+  for (const s of existentes ?? []) indice.set(normClave(s.nombre), s.id);
+
+  for (const cambio of cambios) {
+    const id = indice.get(normClave(cambio.nombre));
+    if (!id) {
+      resultado.noEncontradas++;
+      if (resultado.errores.length < 10) {
+        resultado.errores.push(`No existe en el catálogo: "${cambio.nombre}" (súbelo primero).`);
+      }
+      continue;
+    }
+    // Solo los campos presentes — jamás sobrescribimos descripción/categoría/etc.
+    const patch: Record<string, number> = {};
+    if (cambio.precio !== undefined) patch.precio = cambio.precio;
+    if (cambio.stock !== undefined) patch.stock = cambio.stock;
+
+    const { error } = await supabase.from("servicios").update(patch).eq("id", id);
+    if (error) {
+      if (resultado.errores.length < 10) resultado.errores.push(`${cambio.nombre}: ${error.message}`);
+    } else {
+      resultado.actualizadas++;
+    }
+  }
+
+  return resultado;
+}
+
 /** Procesa un Excel/CSV y hace upsert del catálogo de un tenant. */
 export async function procesarArchivoCatalogo(tenantId: string, file: Express.Multer.File): Promise<ResultadoImportacion> {
   const ext = (file.originalname.split(".").pop() ?? "").toLowerCase();

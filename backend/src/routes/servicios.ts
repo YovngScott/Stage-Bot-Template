@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { requiereAdmin } from "../lib/adminAuth.js";
 import { supabase } from "../lib/supabase.js";
-import { procesarArchivoCatalogo } from "../services/serviciosImport.js";
+import { procesarArchivoCatalogo, procesarPreciosStock } from "../services/serviciosImport.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
@@ -76,3 +76,23 @@ serviciosRouter.post("/importar", requiereAdmin, upload.single("archivo"), async
     res.status(400).json({ error: err?.message ?? "Error interno procesando el archivo." });
   }
 });
+
+/**
+ * POST /api/:slug/servicios/precios-stock — actualización SEGURA de solo
+ * precio y/o stock (no toca el resto de los campos ni inserta productos).
+ */
+serviciosRouter.post(
+  "/precios-stock",
+  requiereAdmin,
+  upload.single("archivo"),
+  async (req: Request, res: Response) => {
+    if (!req.file) return res.status(400).json({ error: "Falta el archivo (campo 'archivo')." });
+    try {
+      const resultado = await procesarPreciosStock(req.tenant!.id, req.file);
+      res.json(resultado);
+    } catch (err: any) {
+      console.error("[servicios] Error procesando precios/stock:", err);
+      res.status(400).json({ error: err?.message ?? "Error interno procesando el archivo." });
+    }
+  },
+);

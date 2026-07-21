@@ -1,7 +1,7 @@
-import crypto from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { requiereAdmin } from "../lib/adminAuth.js";
 import { config } from "../lib/config.js";
+import { consumirEstado, generarEstado } from "../lib/oauthState.js";
 import {
   verificarConexionCalendar,
   generarUrlAutorizacion,
@@ -11,25 +11,6 @@ import {
 import { obtenerTenant } from "../lib/tenants.js";
 
 export const calendarRouter = Router({ mergeParams: true });
-
-// `state` de un solo uso para el flujo de OAuth, codifica el slug del tenant
-// (el callback lo visita el navegador del usuario sin nuestro middleware de
-// ruta /api/:slug/..., así que necesita saber a qué tenant pertenece).
-const ESTADOS_PENDIENTES = new Map<string, { creado: number; slug: string }>();
-const ESTADO_TTL_MS = 10 * 60 * 1000;
-
-function generarEstado(slug: string): string {
-  const estado = crypto.randomBytes(16).toString("hex");
-  ESTADOS_PENDIENTES.set(estado, { creado: Date.now(), slug });
-  return estado;
-}
-
-function consumirEstado(estado: string): string | null {
-  const entrada = ESTADOS_PENDIENTES.get(estado);
-  ESTADOS_PENDIENTES.delete(estado);
-  if (!entrada || Date.now() - entrada.creado >= ESTADO_TTL_MS) return null;
-  return entrada.slug;
-}
 
 function obtenerRedirectUri(req: Request): string {
   if (config.google.oauthRedirectUri) return config.google.oauthRedirectUri;

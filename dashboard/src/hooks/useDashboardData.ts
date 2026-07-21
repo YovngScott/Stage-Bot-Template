@@ -45,6 +45,8 @@ export interface ClienteRequiereHumano {
   telefono: string;
   notas: string | null;
   ultimo_contacto: string;
+  /** 'requiere_humano' = el bot está en pausa; cualquier otro = el bot sigue respondiendo. */
+  estado: string;
 }
 
 export interface EmbudoEstado {
@@ -88,11 +90,15 @@ export function useDashboardData(): DashboardData {
         supabase.from("v_preguntas_frecuentes").select("categoria, pregunta, repeticiones").eq("tenant_id", tenantId).limit(10),
         supabase.from("v_consultas_por_categoria").select("categoria, total").eq("tenant_id", tenantId),
         supabase.from("v_clientes_por_dia").select("dia, activos, nuevos").eq("tenant_id", tenantId),
+        // Se filtra por `atencion_humana_pendiente`, NO por estado: un caso que
+        // el bot escaló queda pendiente sin pausar la conversación, y antes
+        // esos casos no aparecían aquí. `estado` viene para distinguir en la UI
+        // los chats que además están en pausa.
         supabase
           .from("clientes")
-          .select("id, nombre, telefono, notas, ultimo_contacto")
+          .select("id, nombre, telefono, notas, ultimo_contacto, estado")
           .eq("tenant_id", tenantId)
-          .eq("estado", "requiere_humano")
+          .eq("atencion_humana_pendiente", true)
           .order("ultimo_contacto", { ascending: false }),
         supabase.from("v_embudo").select("estado, total").eq("tenant_id", tenantId),
         supabase

@@ -10,6 +10,7 @@ import { calendarRouter } from "./routes/calendar.js";
 import { reportesRouter } from "./routes/reportes.js";
 import { authRouter } from "./routes/auth.js";
 import { configRouter } from "./routes/config.js";
+import { asistenteRouter } from "./routes/asistente.js";
 import { iniciarTodasLasSesiones } from "./services/baileys.js";
 import { iniciarScheduler } from "./services/scheduler.js";
 
@@ -33,6 +34,9 @@ app.use("/api/:slug/empleados", resolverTenant, empleadosRouter);
 app.use("/api/:slug/calendar", resolverTenant, calendarRouter);
 app.use("/api/:slug/reportes", resolverTenant, reportesRouter);
 app.use("/api/:slug/config", resolverTenant, configRouter);
+// Módulo de asistente virtual (triaje de correo). Sus rutas rechazan por sí
+// mismas a los tenants que no son de tipo "assistant".
+app.use("/api/:slug/asistente", resolverTenant, asistenteRouter);
 // URL FIJA (sin :slug) para el callback de OAuth de Google — Google siempre
 // redirige a la misma "Authorized redirect URI"; el tenant se recupera del
 // `state` dentro de routes/calendar.ts, no del path. Montamos el mismo router

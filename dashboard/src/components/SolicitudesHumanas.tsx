@@ -50,7 +50,8 @@ export function SolicitudesHumanas({ clientes, alActualizar }: Props) {
         <div>
           <h2 className="text-base font-semibold">Solicitudes de atención humana</h2>
           <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-            Estos chats están pausados para el bot hasta que los marques como atendidos.
+            Casos esperando a una persona. Los marcados «Bot en pausa» están silenciados hasta que
+            los marques como atendidos; en los demás el bot sigue respondiendo.
           </p>
         </div>
         <span className="rounded-full px-2.5 py-1 text-xs font-medium" style={{ background: "var(--baseline)", color: "var(--text-primary)" }}>
@@ -66,7 +67,21 @@ export function SolicitudesHumanas({ clientes, alActualizar }: Props) {
         <div className="grid gap-3 md:grid-cols-2">
           {clientes.map((cliente) => (
             <article key={cliente.id} className="rounded-lg border p-4" style={{ borderColor: "var(--border)" }}>
-              <p className="font-medium">{cliente.nombre || "Cliente sin nombre"}</p>
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-medium">{cliente.nombre || "Cliente sin nombre"}</p>
+                {/* El equipo necesita saber si el chat quedó mudo o si el bot
+                    sigue acompañando al cliente mientras alguien lo atiende. */}
+                <span
+                  className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium"
+                  style={
+                    cliente.estado === "requiere_humano"
+                      ? { background: "rgba(208,59,59,.15)", color: "#d03b3b" }
+                      : { background: "var(--baseline)", color: "var(--text-muted)" }
+                  }
+                >
+                  {cliente.estado === "requiere_humano" ? "Bot en pausa" : "Escalado por el bot"}
+                </span>
+              </div>
               <p className="mt-0.5 text-sm" style={{ color: "var(--text-secondary)" }}>
                 {cliente.telefono}
               </p>

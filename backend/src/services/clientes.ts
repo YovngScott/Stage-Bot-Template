@@ -1,7 +1,8 @@
 import { supabase, type Cliente, type EstadoCliente, type Mensaje } from "../lib/supabase.js";
 import { notificarEmpleados } from "./notificaciones.js";
 
-const COLUMNAS_CLIENTE = "id, tenant_id, telefono, nombre, estado, etiquetas, notas, solicito_humano_en, atendido_en";
+const COLUMNAS_CLIENTE =
+  "id, tenant_id, telefono, nombre, estado, etiquetas, notas, solicito_humano_en, atendido_en, atencion_humana_pendiente";
 
 /** Busca un cliente por teléfono DENTRO de un tenant, o lo crea si es su primer contacto. */
 export async function obtenerOCrearCliente(tenantId: string, telefono: string, nombre?: string): Promise<Cliente> {
@@ -36,11 +37,20 @@ export async function actualizarEstadoCliente(
   tenantId: string,
   clienteId: string,
   estado: EstadoCliente,
-  opciones?: { etiquetas?: string[]; notas?: string },
+  opciones?: {
+    etiquetas?: string[];
+    notas?: string;
+    /**
+     * Marca el caso como pendiente en el dashboard SIN tocar `estado`, o sea
+     * sin silenciar al bot. Es lo que usa la IA al escalar: el equipo ve el
+     * caso, pero la conversación sigue atendida mientras tanto.
+     */
+    marcarAtencionPendiente?: boolean;
+  },
 ): Promise<void> {
   const { data: actual, error: errorActual } = await supabase
     .from("clientes")
-    .select("estado, telefono, nombre")
+    .select("estado, telefono, nombre, atencion_humana_pendiente")
     .eq("id", clienteId)
     .maybeSingle();
   if (errorActual) throw errorActual;
@@ -49,17 +59,29 @@ export async function actualizarEstadoCliente(
   if (opciones?.etiquetas) cambios.etiquetas = opciones.etiquetas;
   if (opciones?.notas) cambios.notas = opciones.notas;
 
-  const pasaAHumano = estado === "requiere_humano" && actual?.estado !== "requiere_humano";
-  if (pasaAHumano) cambios.solicito_humano_en = new Date().toISOString();
+  // Pausar el bot implica siempre estar pendiente de atención; lo contrario no.
+  const pausaElBot = estado === "requiere_humano" && actual?.estado !== "requiere_humano";
+  const quedaPendiente = pausaElBot || opciones?.marcarAtencionPendiente === true;
+
+  if (pausaElBot) cambios.solicito_humano_en = new Date().toISOString();
+  if (quedaPendiente) {
+    cambios.atencion_humana_pendiente = true;
+    // Sin marca de tiempo el dashboard no puede ordenar ni medir la espera.
+    if (!actual?.atencion_humana_pendiente) cambios.solicito_humano_en = new Date().toISOString();
+  }
 
   const { error } = await supabase.from("clientes").update(cambios).eq("id", clienteId);
   if (error) throw error;
 
-  if (pasaAHumano) {
+  // Solo avisamos en la transición, para no repetir el aviso en cada mensaje.
+  if (quedaPendiente && !actual?.atencion_humana_pendiente) {
     const identificacion = actual?.nombre ? `${actual.nombre} (${actual.telefono})` : actual?.telefono ?? "un cliente";
     const nota = opciones?.notas ? `\nNota: ${opciones.notas}` : "";
-    notificarEmpleados(tenantId, `🔔 *Solicitud de atención humana*\n${identificacion} necesita hablar con un empleado.${nota}`).catch(
-      (err) => console.error("[clientes] Error avisando solicitud de humano:", err),
+    const encabezado = pausaElBot
+      ? `🔔 *Solicitud de atención humana*\n${identificacion} pidió hablar con un empleado. El bot quedó en pausa para este chat.`
+      : `🔔 *Caso escalado por el bot*\n${identificacion} necesita seguimiento de una persona. El bot sigue atendiendo mientras tanto.`;
+    notificarEmpleados(tenantId, `${encabezado}${nota}`).catch((err) =>
+      console.error("[clientes] Error avisando solicitud de humano:", err),
     );
   }
 }
@@ -68,11 +90,25 @@ export async function actualizarEstadoCliente(
  * Cierra la solicitud de atención humana y devuelve el chat al bot.
  */
 export async function marcarClienteAtendido(clienteId: string): Promise<boolean> {
+  const { data: actual, error: errorActual } = await supabase
+    .from("clientes")
+    .select("estado, atencion_humana_pendiente")
+    .eq("id", clienteId)
+    .maybeSingle();
+  if (errorActual) throw errorActual;
+  if (!actual?.atencion_humana_pendiente) return false;
+
   const { data, error } = await supabase
     .from("clientes")
-    .update({ estado: "interesado", atendido_en: new Date().toISOString() })
+    .update({
+      atencion_humana_pendiente: false,
+      atendido_en: new Date().toISOString(),
+      // Solo hay que "despausar" si el chat llegó a pausarse. Un caso que la
+      // IA escaló nunca silenció al bot, así que conserva su etapa del embudo.
+      ...(actual.estado === "requiere_humano" ? { estado: "interesado" } : {}),
+    })
     .eq("id", clienteId)
-    .eq("estado", "requiere_humano")
+    .eq("atencion_humana_pendiente", true)
     .select("id")
     .maybeSingle();
 

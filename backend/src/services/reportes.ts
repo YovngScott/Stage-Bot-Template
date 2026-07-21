@@ -35,7 +35,13 @@ export async function generarDatosReporteDiario(tenant: Tenant, fecha: Date = ne
       .in("estado", ["confirmada", "reprogramada"])
       .order("inicio"),
     supabase.from("v_servicios_mas_preguntados").select("servicio, veces_preguntada").eq("tenant_id", tenant.id).limit(5),
-    supabase.from("clientes").select("id", { count: "exact", head: true }).eq("tenant_id", tenant.id).eq("estado", "requiere_humano"),
+    // Mismo criterio que el dashboard: cuenta los casos pendientes de atención,
+    // estén o no con el bot en pausa.
+    supabase
+      .from("clientes")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenant.id)
+      .eq("atencion_humana_pendiente", true),
   ]);
 
   return {

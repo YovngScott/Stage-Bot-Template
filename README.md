@@ -77,6 +77,70 @@ uno a uno). El código del dashboard no cambia — es el mismo build de Vite (`n
 4. Cloudflare te da un link gratis tipo `https://<proyecto>.pages.dev` — ahí es donde entra el
    dueño del negocio a su dashboard.
 
+## Tipos de bot (`kind`)
+
+El `tenant.json` declara qué clase de bot es. Lo elige el Bot Builder del Owner
+Console al crearlo; el backend arranca sus módulos en función de ese valor:
+
+| `kind` | Qué hace |
+| --- | --- |
+| `messaging` (default) | Bot de WhatsApp que atiende a los clientes del negocio. |
+| `assistant` | Asistente ejecutivo: tría el correo del dueño, deja borradores y escala lo dudoso. |
+| `voice` | Reservado para agentes de voz (todavía se comporta como `messaging`). |
+
+### Asistente virtual — triaje de correo
+
+Un bot `assistant` no espera mensajes: **vigila la bandeja del ejecutivo** y
+procesa cada correo por una cascada que abarata y asegura el trabajo:
+
+```
+Gmail (consulta programada)
+        │
+        ▼
+Filtro heurístico  ──▶ no-reply / boletines / Precedence: bulk  →  descartado sin gastar IA
+        │
+        ▼
+Clasificación IA (JSON estructurado: categoría, prioridad, confianza)
+        │
+        ▼
+Confidence gate  ──┬── >= umbral ──▶ borrador en Gmail (nunca se envía solo)
+                   └── <  umbral ──▶ alerta al ejecutivo por WhatsApp
+```
+
+Puntos de diseño que conviene no romper:
+
+- **Ante la duda, decide un humano.** Una confianza baja, o una IA que falla,
+  siempre terminan en revisión manual — nunca en una respuesta automática.
+- **Solo borradores.** Se pide el scope `gmail.compose`, que permite redactar
+  pero *no* enviar. La última palabra es siempre del ejecutivo.
+- **No guardamos el correo.** En Supabase quedan metadatos y la clasificación;
+  el cuerpo del mensaje se descarta al terminar de procesarlo.
+- **Ingesta por lotes, no webhooks.** Consultas programadas (`intervaloMinutos`)
+  en vez de Gmail push: evita depender de Pub/Sub y mantiene la cuota predecible.
+
+El bloque `asistente` del `tenant.json` lo llena **siempre el Bot Builder** — el
+correo a atender se pide al crear el bot, nunca se escribe a mano:
+
+```jsonc
+{
+  "slug": "acme",
+  "kind": "assistant",
+  "asistente": {
+    "correo": "director@acme.com",     // bandeja que tría
+    "whatsappAlertas": "18091234567",  // dónde escala lo dudoso
+    "umbralConfianza": 0.7,            // confidence gate
+    "intervaloMinutos": 10,
+    "horaReporte": "18:00",
+    "maxPorCorrida": 25
+  }
+}
+```
+
+Para que funcione, el proyecto de Google Cloud (el mismo de Calendar) necesita
+la **Gmail API habilitada** y los scopes `gmail.readonly`, `gmail.compose` y
+`gmail.labels` en la pantalla de consentimiento. El ejecutivo autoriza su cuenta
+desde su dashboard con un clic: el enlace ya lleva su correo como `login_hint`.
+
 ## Aislamiento entre clientes
 
 Como el proyecto de Supabase es compartido, la seguridad depende de:

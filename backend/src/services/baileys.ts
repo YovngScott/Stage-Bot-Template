@@ -217,10 +217,35 @@ function normalizarTexto(texto: string): string {
     .trim();
 }
 
+/** Sustantivos que por sí solos ya señalan a una persona. */
+const PERSONA =
+  /\b(superior|supervis(or|ora)|gerente|encargad[oa]|asesor(a|es)?|emplead[oa]s?|representante|persona|humano|alguien|duen[oa]|agente|operador(a)?|vendedor(a)?|ejecutiv[oa])\b/;
+
+/**
+ * Oficios ambiguos: "hablar con un técnico" es escalar, pero "quiero soporte
+ * técnico" no. Solo cuentan precedidos de "con un/una/el/la…", que es lo que
+ * distingue pedir a una PERSONA de pedir un SERVICIO.
+ */
+const PERSONA_AMBIGUA = /\bcon (un|una|el|la|algun|alguna)\s+(tecnic[oa]|especialista|mecanic[oa]|recepcionista)\b/;
+
+/** Verbos de petición, con sus conjugaciones frecuentes ("pásame", "me pasas"). */
+const ACCION =
+  /\b(habl(ar|o|e|arme)|comunicar(me)?|transferir(me)?|pas(ar|as|ame|arme|enme)|atender(me)?|atienda|contactar|comunique|quiero|necesito|deseo|quisiera|puedo|podria|hay|contesta|responde)\b/;
+
+/** Expresiones que piden un humano sin nombrar un cargo. */
+const FRASES_DIRECTAS =
+  /\b(atencion al cliente|servicio al cliente|hablar con alguien|persona real|ser humano|no quiero (un )?bot|con un humano|operador humano)\b/;
+
+/**
+ * ¿El cliente está pidiendo hablar con una persona? Al dar true se PAUSA el
+ * bot, así que el detector se calibró contra frases reales en ambos sentidos:
+ * pedir un humano debe reconocerse aunque se diga de muchas formas, pero
+ * preguntar un precio o pedir "soporte técnico" jamás debe silenciar el chat.
+ */
 function solicitaAtencionHumana(texto: string): boolean {
   const t = normalizarTexto(texto);
-  return /\b(superior|supervis(or|ora)|gerente|encargad[oa]|asesor|emplead[oa]|representante|persona|humano)\b/.test(t) &&
-    /\b(hablar|comunicar|transferir|pasar|atender|contactar|quiero|necesito|deseo)\b/.test(t);
+  if (FRASES_DIRECTAS.test(t) || PERSONA_AMBIGUA.test(t)) return true;
+  return PERSONA.test(t) && ACCION.test(t);
 }
 
 async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> {

@@ -31,6 +31,8 @@ export interface Cliente {
   notas: string | null;
   solicito_humano_en: string | null;
   atendido_en: string | null;
+  /** Aparece en el dashboard esperando a una persona. Independiente de si el bot está pausado. */
+  atencion_humana_pendiente: boolean;
 }
 
 export interface Mensaje {

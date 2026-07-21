@@ -79,9 +79,27 @@ create table if not exists clientes (
   unique (tenant_id, telefono)
 );
 
+-- "Pendiente de atención humana" y "bot pausado" son cosas DISTINTAS y por eso
+-- viven en campos distintos:
+--   · estado = 'requiere_humano'       → el bot se calla (solo si el cliente lo
+--                                         pidió explícitamente).
+--   · atencion_humana_pendiente = true → aparece en el dashboard para que el
+--                                         equipo lo atienda. La IA levanta esta
+--                                         bandera al escalar un caso SIN
+--                                         silenciar al bot.
+-- Cuando ambos significados compartían la columna `estado`, evitar que el bot
+-- se auto-silenciara hacía desaparecer el caso del dashboard.
+alter table clientes add column if not exists atencion_humana_pendiente boolean not null default false;
+
+-- Backfill: los chats que hoy están pausados siguen pendientes de atención.
+update clientes set atencion_humana_pendiente = true
+  where estado = 'requiere_humano' and atencion_humana_pendiente = false;
+
 create index if not exists idx_clientes_tenant on clientes (tenant_id);
 create index if not exists idx_clientes_estado on clientes (tenant_id, estado);
 create index if not exists idx_clientes_creado on clientes (tenant_id, creado_en);
+create index if not exists idx_clientes_atencion_pendiente
+  on clientes (tenant_id, ultimo_contacto desc) where atencion_humana_pendiente;
 
 -- ----------------------------------------------------------------------------
 -- 2. MENSAJES

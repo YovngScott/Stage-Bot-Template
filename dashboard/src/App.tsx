@@ -10,6 +10,8 @@ import { SolicitudesHumanas } from "./components/SolicitudesHumanas";
 import { Empleados } from "./components/Empleados";
 import { EstadosChats } from "./components/EstadosChats";
 import { OperacionesHoy } from "./components/OperacionesHoy";
+import { AsistenteConexionGmail } from "./components/AsistenteConexionGmail";
+import { AsistentePanel } from "./components/AsistentePanel";
 import { Logo } from "./components/Logo";
 import { Login } from "./components/Login";
 import { adminFetch, logout, verificarAcceso, type EstadoAcceso } from "./lib/api";
@@ -27,20 +29,30 @@ import {
   IconUsers,
   IconPercent,
   IconPanelLeft,
+  IconSparkles,
 } from "./components/Icons";
 
-type Pestana = "estadisticas" | "conexiones" | "chats" | "archivos";
+type Pestana = "estadisticas" | "conexiones" | "chats" | "archivos" | "asistente";
 
-const PESTANAS: {
+type Tab = {
   id: Pestana;
   etiqueta: string;
   breadcrumb: string;
   icono: (props: { size?: number }) => JSX.Element;
-}[] = [
+};
+
+const PESTANAS_VENTA: Tab[] = [
   { id: "estadisticas", etiqueta: "Estadísticas", breadcrumb: "Dashboard", icono: IconChart },
   { id: "conexiones", etiqueta: "Conexiones", breadcrumb: "Conexiones", icono: IconPlug },
   { id: "chats", etiqueta: "Estados de chats", breadcrumb: "Chats", icono: IconChat },
   { id: "archivos", etiqueta: "Archivos", breadcrumb: "Archivos", icono: IconFolder },
+];
+
+// Un bot "assistant" no vende ni agenda: no tiene funnel, catálogo ni chats de
+// clientes que mostrar. Su navegación es su propio par de pestañas.
+const PESTANAS_ASISTENTE: Tab[] = [
+  { id: "asistente", etiqueta: "Asistente", breadcrumb: "Asistente virtual", icono: IconSparkles },
+  { id: "conexiones", etiqueta: "Conexiones", breadcrumb: "Conexiones", icono: IconPlug },
 ];
 
 const MES_ANIO = new Date()
@@ -71,11 +83,18 @@ export default function App() {
     recargar,
   } = useDashboardData();
 
+  const esAsistente = negocio.kind === "assistant";
+  const PESTANAS = esAsistente ? PESTANAS_ASISTENTE : PESTANAS_VENTA;
+
   useEffect(() => {
     void cargarNegocio().then((datos) => {
       if (!datos) return;
       setNegocio(datos);
       document.title = `${datos.nombre} — Dashboard`;
+      // El layout del bot de ventas es la pestaña por defecto mientras no
+      // sabemos el tipo de bot; en cuanto llega la respuesta y es un
+      // asistente, movemos al usuario a SU pestaña por defecto.
+      if (datos.kind === "assistant") setPestana("asistente");
     });
 
     supabase.auth.getSession().then(({ data }) => {
@@ -177,7 +196,9 @@ export default function App() {
     );
   }
 
-  const activa = PESTANAS.find((p) => p.id === pestana)!;
+  // Defensivo: si `pestana` quedó apuntando a una pestaña que no existe en
+  // este layout (ej. justo al resolver el tipo de bot), cae a la primera.
+  const activa = PESTANAS.find((p) => p.id === pestana) ?? PESTANAS[0];
 
   return (
     <div className="min-h-screen">
@@ -350,7 +371,17 @@ export default function App() {
                 </>
               )}
 
-              {pestana === "conexiones" && (
+              {pestana === "conexiones" && esAsistente && (
+                <>
+                  <EncabezadoSeccion
+                    titulo="Conexiones"
+                    descripcion="El WhatsApp donde este asistente te avisa cuando necesita tu criterio."
+                  />
+                  <WhatsAppStatus />
+                </>
+              )}
+
+              {pestana === "conexiones" && !esAsistente && (
                 <>
                   <EncabezadoSeccion titulo="Conexiones" descripcion="WhatsApp, Google Calendar y alertas del equipo." />
                   <section className="mb-6">
@@ -375,6 +406,19 @@ export default function App() {
                 <>
                   <EncabezadoSeccion titulo="Archivos" descripcion="Carga y actualiza el catálogo de productos/servicios." />
                   <CatalogoUpload />
+                </>
+              )}
+
+              {pestana === "asistente" && (
+                <>
+                  <EncabezadoSeccion
+                    titulo="Asistente virtual"
+                    descripcion="Triaje de correo: qué se descartó solo, qué quedó listo como borrador y qué necesita tu criterio."
+                  />
+                  <section className="mb-6">
+                    <AsistenteConexionGmail />
+                  </section>
+                  <AsistentePanel />
                 </>
               )}
             </>

@@ -3,12 +3,38 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { supabase } from "./supabase.js";
 
+/** Tipo de bot. Lo elige el Owner Console al crearlo y decide qué módulos arrancan. */
+export type BotKind = "assistant" | "messaging" | "voice";
+
+/**
+ * Configuración del módulo de asistente virtual (solo aplica a kind
+ * "assistant"). TODO esto lo llena el Bot Builder del Owner Console al crear
+ * el bot — nunca se edita a mano ni viene con valores de un correo concreto.
+ */
+export interface AsistenteConfig {
+  /** Correo que el asistente va a triar. Lo pide el Bot Builder al crear el bot. */
+  correo: string;
+  /** Número de WhatsApp (con código de país) donde el ejecutivo recibe alertas. */
+  whatsappAlertas: string;
+  /** Umbral del "confidence gate": >= crea borrador, < escala a revisión humana. */
+  umbralConfianza: number;
+  /** Hora local del reporte de fin de día (HH:mm). */
+  horaReporte: string;
+  /** Cada cuántos minutos se consulta la bandeja (consultas por lotes, sin Pub/Sub). */
+  intervaloMinutos: number;
+  /** Máximo de correos a procesar por corrida, para respetar la cuota de Gmail. */
+  maxPorCorrida: number;
+  /** Taxonomía de categorías: nombre → descripción que ve el clasificador. */
+  categorias: Record<string, string>;
+}
+
 /**
  * Configuración de UN cliente (tenant), cargada desde
  * config/tenants/<slug>.json. El formato se documenta en README.md.
  */
 export interface TenantConfig {
   slug: string;
+  kind: BotKind;
   nombreBot: string;
   nombre: string;
   descripcion: string;
@@ -22,6 +48,45 @@ export interface TenantConfig {
   adminEmails: string[];
   promptExtra: string;
   googleCalendarId: string;
+  /** Presente solo cuando kind === "assistant". */
+  asistente: AsistenteConfig | null;
+}
+
+/** Taxonomía por defecto del triaje (la del análisis de requisitos). */
+const CATEGORIAS_POR_DEFECTO: Record<string, string> = {
+  Billing: "Facturas, pagos, alertas financieras, reembolsos, aprobaciones de presupuesto.",
+  Support: "Errores de software, reportes de fallos, caídas del sistema, problemas de acceso a funciones.",
+  Sales: "Consultas de clientes, demos, cotizaciones, renovaciones de contrato, intención de compra.",
+  Legal: "Contratos, términos de servicio, acuerdos de confidencialidad, cumplimiento regulatorio.",
+  Security: "Solicitudes de autorización de acceso, restablecimiento de contraseñas, alertas de actividad sospechosa.",
+  General_Ops: "Administración interna, actualizaciones generales, operativa rutinaria no urgente.",
+};
+
+/** Normaliza el bloque `asistente` del JSON, aplicando defaults sensatos. */
+function normalizarAsistente(raw: any): AsistenteConfig | null {
+  if (!raw || typeof raw !== "object") return null;
+  const correo = String(raw.correo ?? "").trim().toLowerCase();
+  // Sin correo no hay nada que triar: el bot arranca igual pero el módulo
+  // queda inactivo hasta que el Owner Console lo complete.
+  if (!correo) return null;
+
+  const umbral = Number(raw.umbralConfianza);
+  const intervalo = Number(raw.intervaloMinutos);
+  const maximo = Number(raw.maxPorCorrida);
+  const categorias =
+    raw.categorias && typeof raw.categorias === "object" && Object.keys(raw.categorias).length > 0
+      ? (raw.categorias as Record<string, string>)
+      : CATEGORIAS_POR_DEFECTO;
+
+  return {
+    correo,
+    whatsappAlertas: String(raw.whatsappAlertas ?? "").replace(/[^\d]/g, ""),
+    umbralConfianza: Number.isFinite(umbral) && umbral > 0 && umbral <= 1 ? umbral : 0.7,
+    horaReporte: /^\d{2}:\d{2}$/.test(String(raw.horaReporte)) ? String(raw.horaReporte) : "18:00",
+    intervaloMinutos: Number.isFinite(intervalo) && intervalo >= 1 ? Math.min(intervalo, 1440) : 10,
+    maxPorCorrida: Number.isFinite(maximo) && maximo >= 1 ? Math.min(maximo, 100) : 25,
+    categorias,
+  };
 }
 
 /** Tenant ya resuelto contra la base de datos (tiene su id real de Supabase). */
@@ -69,8 +134,12 @@ function cargarConfigsDeDisco(): TenantConfig[] {
         console.error(`[tenants] ${archivo}: falta el campo "nombre", se omite este tenant.`);
         continue;
       }
+      const kind: BotKind =
+        json.kind === "assistant" || json.kind === "voice" ? json.kind : "messaging";
+
       configs.push({
         slug: json.slug,
+        kind,
         nombreBot: json.nombreBot ?? "Asistente",
         nombre: json.nombre,
         descripcion: json.descripcion ?? "",
@@ -84,6 +153,7 @@ function cargarConfigsDeDisco(): TenantConfig[] {
         adminEmails: (json.adminEmails ?? []).map((e: string) => e.trim().toLowerCase()).filter(Boolean),
         promptExtra: json.promptExtra ?? "",
         googleCalendarId: json.googleCalendarId ?? "primary",
+        asistente: kind === "assistant" ? normalizarAsistente(json.asistente) : null,
       });
     } catch (err) {
       console.error(`[tenants] Error leyendo ${archivo}:`, err);
@@ -152,6 +222,15 @@ export function listarTenants(): Tenant[] {
 
 export function obtenerTenant(slug: string): Tenant | undefined {
   return tenantsCache?.get(slug);
+}
+
+/**
+ * Tenants con el asistente virtual listo para triar (kind "assistant" y con
+ * un correo ya configurado desde el Bot Builder). El scheduler solo programa
+ * el polling de estos.
+ */
+export function listarTenantsAsistente(): Tenant[] {
+  return listarTenants().filter((t) => t.config.kind === "assistant" && t.config.asistente !== null);
 }
 
 /** ¿bot_activo de este tenant? Consulta fresca a Supabase (no cacheada: la

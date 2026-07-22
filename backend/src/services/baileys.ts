@@ -21,6 +21,7 @@ import {
 } from "./clientes.js";
 import { generarRespuesta } from "./ia.js";
 import { conTimeout } from "../lib/timeout.js";
+import { responderComandoWhatsApp } from "./asistente/triaje.js";
 
 const logger = pino({ level: "silent" });
 
@@ -217,10 +218,60 @@ function normalizarTexto(texto: string): string {
     .trim();
 }
 
+/** Sustantivos que por sí solos ya señalan a una persona. */
+const PERSONA =
+  /\b(superior|supervis(or|ora)|gerente|encargad[oa]|asesor(a|es)?|emplead[oa]s?|representante|persona|humano|alguien|duen[oa]|agente|operador(a)?|vendedor(a)?|ejecutiv[oa])\b/;
+
+/**
+ * Oficios ambiguos: "hablar con un técnico" es escalar, pero "quiero soporte
+ * técnico" no. Solo cuentan precedidos de "con un/una/el/la…", que es lo que
+ * distingue pedir a una PERSONA de pedir un SERVICIO.
+ */
+const PERSONA_AMBIGUA = /\bcon (un|una|el|la|algun|alguna)\s+(tecnic[oa]|especialista|mecanic[oa]|recepcionista)\b/;
+
+/** Verbos de petición, con sus conjugaciones frecuentes ("pásame", "me pasas"). */
+const ACCION =
+  /\b(habl(ar|o|e|arme)|comunicar(me)?|transferir(me)?|pas(ar|as|ame|arme|enme)|atender(me)?|atienda|contactar|comunique|quiero|necesito|deseo|quisiera|puedo|podria|hay|contesta|responde)\b/;
+
+/** Expresiones que piden un humano sin nombrar un cargo. */
+const FRASES_DIRECTAS =
+  /\b(atencion al cliente|servicio al cliente|hablar con alguien|persona real|ser humano|no quiero (un )?bot|con un humano|operador humano)\b/;
+
+/**
+ * ¿El cliente está pidiendo hablar con una persona? Al dar true se PAUSA el
+ * bot, así que el detector se calibró contra frases reales en ambos sentidos:
+ * pedir un humano debe reconocerse aunque se diga de muchas formas, pero
+ * preguntar un precio o pedir "soporte técnico" jamás debe silenciar el chat.
+ */
 function solicitaAtencionHumana(texto: string): boolean {
   const t = normalizarTexto(texto);
-  return /\b(superior|supervis(or|ora)|gerente|encargad[oa]|asesor|emplead[oa]|representante|persona|humano)\b/.test(t) &&
-    /\b(hablar|comunicar|transferir|pasar|atender|contactar|quiero|necesito|deseo)\b/.test(t);
+  if (FRASES_DIRECTAS.test(t) || PERSONA_AMBIGUA.test(t)) return true;
+  return PERSONA.test(t) && ACCION.test(t);
+}
+
+/**
+ * Responde en el número de alertas de un bot "assistant": nunca IA de ventas,
+ * solo un resumen del día bajo demanda (ver responderComandoWhatsApp).
+ */
+async function manejarMensajeAsistente(tenant: Tenant, cliente: { id: string }, remoteJid: string, texto: string): Promise<void> {
+  const sock = sesiones.get(tenant.id)?.sock;
+
+  let respuesta: string;
+  try {
+    respuesta = await responderComandoWhatsApp(tenant, texto);
+  } catch (err) {
+    console.error(`[whatsapp:${tenant.config.slug}] Error respondiendo comando de asistente:`, err);
+    respuesta = "No pude generar el resumen ahora mismo. Intenta de nuevo en un momento.";
+  }
+
+  try {
+    await sock?.sendMessage(remoteJid, { text: respuesta });
+  } catch (err) {
+    console.error(`[whatsapp:${tenant.config.slug}] No se pudo enviar la respuesta del asistente:`, err);
+    return; // no guardamos como enviado algo que no salió
+  }
+
+  await guardarMensaje({ tenant_id: tenant.id, cliente_id: cliente.id, rol: "bot", contenido: respuesta });
 }
 
 async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> {
@@ -265,6 +316,16 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
   // este tenant, ej. por falta de pago). Seguimos guardando los mensajes
   // entrantes arriba para no perder historial, pero no respondemos nada.
   if (!(await tenantBotActivo(tenant.id))) return;
+
+  // Un bot "assistant" no vende ni agenda: su WhatsApp es el canal privado de
+  // alertas del ejecutivo, no una línea de atención al cliente. Si dejáramos
+  // caer esto al loop de ventas de abajo, cualquier mensaje a ese número
+  // dispararía el prompt de ventas (con herramientas de catálogo que no
+  // existen para este tenant) — cortamos aquí, antes de esa rama.
+  if (tenant.config.kind === "assistant") {
+    await manejarMensajeAsistente(tenant, cliente, remoteJid, texto);
+    return;
+  }
 
   // El cliente pidió EXPLÍCITAMENTE un humano: pausamos el bot para que un
   // asesor tome el chat, pero SOLO por una ventana (3h), nunca para siempre.

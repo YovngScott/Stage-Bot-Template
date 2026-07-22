@@ -16,7 +16,12 @@ export interface AsistenteConfig {
   correo: string;
   /** Número de WhatsApp (con código de país) donde el ejecutivo recibe alertas. */
   whatsappAlertas: string;
-  /** Umbral del "confidence gate": >= crea borrador, < escala a revisión humana. */
+  /**
+   * Red de seguridad de comprensión: por debajo de esto el asistente asume que
+   * NO entendió el correo y prefiere escalarlo antes que inventar un borrador.
+   * No es la barrera principal — lo que decide si algo se escala es que
+   * requiera la decisión personal del titular (ver clasificador).
+   */
   umbralConfianza: number;
   /** Hora local del reporte de fin de día (HH:mm). */
   horaReporte: string;
@@ -92,7 +97,9 @@ function normalizarAsistente(raw: any): AsistenteConfig | null {
   return {
     correo,
     whatsappAlertas: String(raw.whatsappAlertas ?? "").replace(/[^\d]/g, ""),
-    umbralConfianza: Number.isFinite(umbral) && umbral > 0 && umbral <= 1 ? umbral : 0.7,
+    // Bajo a propósito: la política es redactar por defecto, así que este
+    // valor solo frena los correos que la IA realmente no entendió.
+    umbralConfianza: Number.isFinite(umbral) && umbral > 0 && umbral <= 1 ? umbral : 0.35,
     horaReporte: /^\d{2}:\d{2}$/.test(String(raw.horaReporte)) ? String(raw.horaReporte) : "18:00",
     intervaloMinutos: Number.isFinite(intervalo) && intervalo >= 1 ? Math.min(intervalo, 1440) : 10,
     maxPorCorrida: Number.isFinite(maximo) && maximo >= 1 ? Math.min(maximo, 100) : 25,

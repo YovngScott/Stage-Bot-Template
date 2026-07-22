@@ -129,7 +129,8 @@ export function AsistentePanel() {
           <div>
             <h2 className="text-base font-semibold">Correos que necesitan tu criterio</h2>
             <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-              Confianza por debajo del umbral: el asistente no redactó nada, solo te avisó por WhatsApp.
+              El asistente redacta el resto por su cuenta. Estos los dejó intactos porque deben salir
+              de tu parte —o porque no terminó de entenderlos— y te avisó por WhatsApp.
             </p>
           </div>
           <button

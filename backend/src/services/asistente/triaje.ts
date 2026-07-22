@@ -72,18 +72,23 @@ function alertaWhatsApp(tenant: Tenant, correo: CorreoGmail, clasificacion: Clas
     ].join("\n");
   }
 
-  const porcentaje = Math.round(clasificacion.confianza * 100);
+  // El motivo del escalamiento cambia el mensaje: no es lo mismo "esto te toca
+  // a ti" que "no te entendí". El titular decide distinto en cada caso.
+  const porImportancia = clasificacion.requiereDecisionPersonal;
+  const motivo = porImportancia
+    ? "Esto debería salir de tu parte, no de la mía, así que no redacté nada."
+    : `No estoy seguro de haber entendido bien (confianza ${Math.round(clasificacion.confianza * 100)}%), así que preferí no redactar.`;
+
   return [
     `🔍 *${tenant.config.nombreBot}* — necesito tu criterio`,
     "",
     `*De:* ${remitente}`,
     `*Asunto:* ${correo.encabezados.subject}`,
     `*Categoría:* ${clasificacion.categoria} · *Prioridad:* ${clasificacion.prioridad}`,
-    `*Confianza:* ${porcentaje}% (por debajo de tu umbral)`,
     "",
     `_${clasificacion.justificacion}_`,
     "",
-    "No redacté borrador porque no estoy seguro. Lo dejé intacto en tu bandeja.",
+    `${motivo} Lo dejé intacto en tu bandeja.`,
   ].join("\n");
 }
 
@@ -230,10 +235,18 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
         requiere_accion: clasificacion.requiereAccion,
       });
 
-      // ---- Capa 3: barrera de confianza ------------------------------------
-      const superaUmbral = clasificacion.confianza >= asistente.umbralConfianza;
+      // ---- Capa 3: ¿redactar o escalar? ------------------------------------
+      // La política es redactar POR DEFECTO: cada borrador es trabajo que el
+      // titular ya no tiene que hacer. Solo se abstiene en dos casos:
+      //   1. El correo debe contestarlo él en persona (legal, dinero,
+      //      seguridad, decisiones de negocio, conflictos delicados).
+      //   2. La IA no entendió el correo, y redactar sería inventar.
+      // El umbral de confianza queda como red de seguridad del caso 2, no
+      // como la barrera principal.
+      const noEntendio = clasificacion.confianza < asistente.umbralConfianza;
+      const debeDecidirElTitular = clasificacion.requiereDecisionPersonal || noEntendio;
 
-      if (superaUmbral && clasificacion.requiereAccion && clasificacion.borrador) {
+      if (!debeDecidirElTitular && clasificacion.borrador) {
         let borradorId: string | null = null;
         try {
           borradorId = await crearBorrador(gmail, {
@@ -251,14 +264,14 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
         continue;
       }
 
-      if (superaUmbral) {
-        // Clasificado con confianza, pero no espera respuesta: solo se archiva
-        // el registro. Nada que redactar ni que molestar al ejecutivo.
+      if (!debeDecidirElTitular) {
+        // Clasificado sin problema, pero la IA no produjo texto que ofrecer.
+        // No es motivo para molestar al titular: queda registrado y ya.
         await supabase.from("asistente_correos").insert({ ...fila, resultado: "auto" });
         continue;
       }
 
-      // Por debajo del umbral → decide una persona.
+      // Requiere su criterio → se lo dejamos intacto y le avisamos.
       resumen.escaladosRevision += 1;
       const avisado = await avisarEjecutivo(tenant, alertaWhatsApp(tenant, correo, clasificacion));
       await supabase.from("asistente_correos").insert({ ...fila, resultado: "revision", alerta_enviada: avisado });

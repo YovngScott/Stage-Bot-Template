@@ -62,6 +62,8 @@ asistenteRouter.get("/estado", requiereAdmin, async (req: Request, res: Response
     whatsappAlertas: asistente.whatsappAlertas,
     intervaloMinutos: asistente.intervaloMinutos,
     horaReporte: asistente.horaReporte,
+    actuaComoTitular: asistente.actuaComoTitular,
+    nombreTitular: asistente.nombreTitular || tenant.config.nombre,
     error: perfil ? null : 'Gmail sin conectar. Usa el botón "Conectar Gmail".',
   });
 });

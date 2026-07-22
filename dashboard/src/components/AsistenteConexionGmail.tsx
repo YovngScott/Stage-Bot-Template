@@ -14,6 +14,8 @@ interface EstadoAsistente {
   umbralConfianza: number | null;
   intervaloMinutos: number | null;
   horaReporte: string | null;
+  actuaComoTitular: boolean | null;
+  nombreTitular: string | null;
 }
 
 /**
@@ -155,6 +157,14 @@ export function AsistenteConexionGmail() {
               <div>
                 <dt style={{ color: "var(--text-muted)" }}>Reporte diario</dt>
                 <dd className="font-medium">{estado.horaReporte ?? "18:00"}</dd>
+              </div>
+              <div className="col-span-2 sm:col-span-3">
+                <dt style={{ color: "var(--text-muted)" }}>Firma de los borradores</dt>
+                <dd className="font-medium">
+                  {estado.actuaComoTitular
+                    ? `Se redactan a nombre de ${estado.nombreTitular} — nada se envía sin que tú lo revises.`
+                    : "Se redactan identificándose como tu asistente."}
+                </dd>
               </div>
             </dl>
           )}

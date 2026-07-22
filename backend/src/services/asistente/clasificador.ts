@@ -37,6 +37,28 @@ export interface Clasificacion {
   tarea: TareaExtraida | null;
 }
 
+/**
+ * Voz con la que se redacta el borrador. Es una decisión del cliente en el Bot
+ * Builder: escribir como el titular (lo normal en un asistente ejecutivo, que
+ * redacta para que su jefe firme) o presentarse como asistente.
+ */
+function instruccionesDeVoz(tenant: Tenant, asistente: AsistenteConfig): string {
+  const titular = asistente.nombreTitular || tenant.config.nombre;
+
+  if (asistente.actuaComoTitular) {
+    return `VOZ DEL BORRADOR:
+- Redacta en PRIMERA PERSONA como ${titular}. El borrador debe leerse como si lo hubiera escrito ${titular} directamente.
+- NO menciones que eres un asistente, una IA ni un sistema automático, y no agregues avisos de que el mensaje fue generado automáticamente.
+- Firma como ${titular}. No inventes cargos, títulos ni datos de contacto que no conozcas.
+- Escribe solo lo que ${titular} podría sostener: ante compromisos, cifras o fechas que no aparezcan en el correo, deja el borrador en acuse de recibo en vez de improvisar.`;
+  }
+
+  return `VOZ DEL BORRADOR:
+- Redacta como el asistente de ${titular}, escribiendo EN SU NOMBRE y dejándolo claro (por ejemplo: "escribo en nombre de ${titular}").
+- Sé transparente sobre tu rol si el destinatario lo pregunta; nunca afirmes ser ${titular}.
+- Firma como el asistente de ${titular}.`;
+}
+
 function construirPrompt(tenant: Tenant, asistente: AsistenteConfig): string {
   const categorias = Object.entries(asistente.categorias)
     .map(([nombre, descripcion]) => `- ${nombre}: ${descripcion}`)
@@ -68,6 +90,8 @@ Devuelve un JSON con esta forma exacta:
     "notes": "<contexto breve>"
   }
 }
+
+${instruccionesDeVoz(tenant, asistente)}
 
 REGLAS CRÍTICAS:
 - "confidence_score" debe reflejar tu certeza REAL. Si el correo es ambiguo, si no entiendes la intención, o si responder mal tendría consecuencias (temas legales, financieros o de seguridad), usa un valor BAJO. Un valor bajo escala el correo a revisión humana, que es el resultado correcto ante la duda.

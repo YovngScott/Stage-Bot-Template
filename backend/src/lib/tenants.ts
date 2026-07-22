@@ -24,6 +24,17 @@ export interface AsistenteConfig {
   intervaloMinutos: number;
   /** Máximo de correos a procesar por corrida, para respetar la cuota de Gmail. */
   maxPorCorrida: number;
+  /**
+   * true  → redacta en primera persona como el titular, sin mencionar que hay
+   *         un asistente de por medio. Seguro por diseño: el asistente solo
+   *         crea BORRADORES (scope gmail.compose), así que nada sale sin que
+   *         el titular lo lea y lo envíe él mismo.
+   * false → se presenta como asistente que escribe en nombre del titular.
+   * Por defecto false: identificarse es la opción conservadora.
+   */
+  actuaComoTitular: boolean;
+  /** Nombre con el que firma cuando actuaComoTitular está activo. */
+  nombreTitular: string;
   /** Taxonomía de categorías: nombre → descripción que ve el clasificador. */
   categorias: Record<string, string>;
 }
@@ -85,6 +96,8 @@ function normalizarAsistente(raw: any): AsistenteConfig | null {
     horaReporte: /^\d{2}:\d{2}$/.test(String(raw.horaReporte)) ? String(raw.horaReporte) : "18:00",
     intervaloMinutos: Number.isFinite(intervalo) && intervalo >= 1 ? Math.min(intervalo, 1440) : 10,
     maxPorCorrida: Number.isFinite(maximo) && maximo >= 1 ? Math.min(maximo, 100) : 25,
+    actuaComoTitular: raw.actuaComoTitular === true,
+    nombreTitular: String(raw.nombreTitular ?? "").trim(),
     categorias,
   };
 }

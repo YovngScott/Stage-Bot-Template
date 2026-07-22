@@ -21,6 +21,7 @@ import {
 } from "./clientes.js";
 import { generarRespuesta } from "./ia.js";
 import { conTimeout } from "../lib/timeout.js";
+import { responderComandoWhatsApp } from "./asistente/triaje.js";
 
 const logger = pino({ level: "silent" });
 
@@ -248,6 +249,31 @@ function solicitaAtencionHumana(texto: string): boolean {
   return PERSONA.test(t) && ACCION.test(t);
 }
 
+/**
+ * Responde en el número de alertas de un bot "assistant": nunca IA de ventas,
+ * solo un resumen del día bajo demanda (ver responderComandoWhatsApp).
+ */
+async function manejarMensajeAsistente(tenant: Tenant, cliente: { id: string }, remoteJid: string, texto: string): Promise<void> {
+  const sock = sesiones.get(tenant.id)?.sock;
+
+  let respuesta: string;
+  try {
+    respuesta = await responderComandoWhatsApp(tenant, texto);
+  } catch (err) {
+    console.error(`[whatsapp:${tenant.config.slug}] Error respondiendo comando de asistente:`, err);
+    respuesta = "No pude generar el resumen ahora mismo. Intenta de nuevo en un momento.";
+  }
+
+  try {
+    await sock?.sendMessage(remoteJid, { text: respuesta });
+  } catch (err) {
+    console.error(`[whatsapp:${tenant.config.slug}] No se pudo enviar la respuesta del asistente:`, err);
+    return; // no guardamos como enviado algo que no salió
+  }
+
+  await guardarMensaje({ tenant_id: tenant.id, cliente_id: cliente.id, rol: "bot", contenido: respuesta });
+}
+
 async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> {
   if (!msg.message || msg.key.fromMe) return;
 
@@ -290,6 +316,16 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
   // este tenant, ej. por falta de pago). Seguimos guardando los mensajes
   // entrantes arriba para no perder historial, pero no respondemos nada.
   if (!(await tenantBotActivo(tenant.id))) return;
+
+  // Un bot "assistant" no vende ni agenda: su WhatsApp es el canal privado de
+  // alertas del ejecutivo, no una línea de atención al cliente. Si dejáramos
+  // caer esto al loop de ventas de abajo, cualquier mensaje a ese número
+  // dispararía el prompt de ventas (con herramientas de catálogo que no
+  // existen para este tenant) — cortamos aquí, antes de esa rama.
+  if (tenant.config.kind === "assistant") {
+    await manejarMensajeAsistente(tenant, cliente, remoteJid, texto);
+    return;
+  }
 
   // El cliente pidió EXPLÍCITAMENTE un humano: pausamos el bot para que un
   // asesor tome el chat, pero SOLO por una ventana (3h), nunca para siempre.

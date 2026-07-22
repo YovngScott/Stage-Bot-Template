@@ -199,3 +199,26 @@ export function IconKey({ size = 16, className, style }: IconProps) {
     </svg>
   );
 }
+
+export function IconMail({ size = 16, className, style }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} style={style} aria-hidden>
+      <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
+      <path d="m4 7 8 6 8-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function IconSparkles({ size = 16, className, style }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} style={style} aria-hidden>
+      <path
+        d="M11 3v4M11 3l1.5 3.5L16 8l-3.5 1.5L11 13l-1.5-3.5L6 8l3.5-1.5L11 3ZM18 14v3M18 14l1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

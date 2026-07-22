@@ -87,6 +87,48 @@ function alertaWhatsApp(tenant: Tenant, correo: CorreoGmail, clasificacion: Clas
   ].join("\n");
 }
 
+/**
+ * Responde a un mensaje que le llegó por WhatsApp al NÚMERO DE ALERTAS del
+ * asistente (no al bot de ventas: los tenants "assistant" no tienen uno). Ese
+ * número es el canal privado del ejecutivo, así que aquí NUNCA corre el loop
+ * de ventas/soporte con IA — solo un resumen del día bajo demanda.
+ */
+export async function responderComandoWhatsApp(tenant: Tenant, texto: string): Promise<string> {
+  const asistente = tenant.config.asistente;
+  const comando = texto.trim().toLowerCase();
+
+  if (/^(estado|resumen|status|hoy)\b/.test(comando)) {
+    const desde = new Date();
+    desde.setHours(0, 0, 0, 0);
+    const { data, error } = await supabase
+      .from("asistente_correos")
+      .select("resultado")
+      .eq("tenant_id", tenant.id)
+      .gte("procesado_en", desde.toISOString());
+    if (error) throw error;
+
+    const filas = data ?? [];
+    const borradores = filas.filter((f: any) => f.resultado === "auto").length;
+    const pendientes = filas.filter((f: any) => f.resultado === "revision" || f.resultado === "error").length;
+
+    return [
+      `📊 *${tenant.config.nombreBot}* — resumen de hoy`,
+      `Correos revisados: ${filas.length}`,
+      `Borradores listos en Gmail: ${borradores}`,
+      `Pendientes de tu criterio: ${pendientes}`,
+      "",
+      `Bandeja: ${asistente?.correo ?? "sin configurar"}`,
+    ].join("\n");
+  }
+
+  return [
+    `👋 Este número es el canal de alertas de *${tenant.config.nombreBot}*.`,
+    "No mantengo conversaciones aquí — reviso tu correo y te aviso cuando necesito tu criterio.",
+    "",
+    "Escribe *estado* para un resumen rápido del día.",
+  ].join("\n");
+}
+
 async function avisarEjecutivo(tenant: Tenant, texto: string): Promise<boolean> {
   const numero = tenant.config.asistente?.whatsappAlertas;
   if (!numero) return false;

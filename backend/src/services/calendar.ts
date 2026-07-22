@@ -7,6 +7,18 @@ import type { Tenant } from "../lib/tenants.js";
 const SCOPES_OAUTH = ["https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/userinfo.email"];
 
 /**
+ * Scopes extra del asistente virtual. Deliberadamente NO pedimos `gmail.send`
+ * ni `gmail.modify`: `gmail.compose` permite dejar borradores pero jamás
+ * enviarlos sin que una persona lo apruebe, y `readonly` es lo mínimo para
+ * poder triar la bandeja. Esto también simplifica la verificación de Google.
+ */
+const SCOPES_ASISTENTE = [
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.compose",
+  "https://www.googleapis.com/auth/gmail.labels",
+];
+
+/**
  * Integración con Google Calendar, UNA conexión OAuth por tenant. El Client
  * ID/Secret de la app de Google Cloud es compartido (variable de entorno);
  * cada tenant autoriza con SU propia cuenta desde el dashboard, y su
@@ -25,8 +37,19 @@ function crearOAuthClient(redirectUri?: string): OAuth2Client | null {
   return new google.auth.OAuth2(config.google.oauthClientId, config.google.oauthClientSecret, redirectUri);
 }
 
-/** URL de consentimiento de Google para que el dashboard redirija al usuario. `state` debe incluir el slug del tenant. */
-export function generarUrlAutorizacion(state: string, redirectUri: string): string {
+/**
+ * URL de consentimiento de Google para que el dashboard redirija al usuario.
+ * `state` debe incluir el slug del tenant.
+ *
+ * - `incluirGmail`: agrega los scopes de triaje de correo (bots tipo asistente).
+ * - `loginHint`: correo que el bot va a asistir, para que Google ya lo
+ *   preseleccione y el ejecutivo no autorice la cuenta equivocada.
+ */
+export function generarUrlAutorizacion(
+  state: string,
+  redirectUri: string,
+  opciones: { incluirGmail?: boolean; loginHint?: string } = {},
+): string {
   const client = crearOAuthClient(redirectUri);
   if (!client) {
     throw new Error("Falta configurar GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET en el backend.");
@@ -34,9 +57,34 @@ export function generarUrlAutorizacion(state: string, redirectUri: string): stri
   return client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
-    scope: SCOPES_OAUTH,
+    scope: opciones.incluirGmail ? [...SCOPES_OAUTH, ...SCOPES_ASISTENTE] : SCOPES_OAUTH,
+    ...(opciones.loginHint ? { login_hint: opciones.loginHint } : {}),
     state,
   });
+}
+
+/** Cliente OAuth autenticado de un tenant, reutilizable por cualquier API de Google. */
+export async function obtenerClienteOAuth(tenantId: string): Promise<OAuth2Client | null> {
+  if (!config.google.oauthClientId || !config.google.oauthClientSecret) return null;
+  const tokens = await obtenerTokensGuardados(tenantId);
+  if (!tokens) return null;
+
+  const client = new google.auth.OAuth2(config.google.oauthClientId, config.google.oauthClientSecret);
+  client.setCredentials({
+    refresh_token: tokens.refresh_token,
+    access_token: tokens.access_token ?? undefined,
+    expiry_date: tokens.expiry_date ?? undefined,
+  });
+  client.on("tokens", (nuevos) => {
+    if (nuevos.access_token) {
+      supabase
+        .from("google_oauth_tokens")
+        .update({ access_token: nuevos.access_token, expiry_date: nuevos.expiry_date ?? null })
+        .eq("tenant_id", tenantId)
+        .then(undefined, () => {});
+    }
+  });
+  return client;
 }
 
 /** Intercambia el `code` del callback por tokens y los guarda para ESE tenant. */
@@ -89,25 +137,8 @@ async function obtenerTokensGuardados(tenantId: string): Promise<TokensGuardados
 }
 
 async function obtenerClienteCalendar(tenantId: string): Promise<calendar_v3.Calendar | null> {
-  if (!config.google.oauthClientId || !config.google.oauthClientSecret) return null;
-  const tokens = await obtenerTokensGuardados(tenantId);
-  if (!tokens) return null;
-
-  const client = new google.auth.OAuth2(config.google.oauthClientId, config.google.oauthClientSecret);
-  client.setCredentials({
-    refresh_token: tokens.refresh_token,
-    access_token: tokens.access_token ?? undefined,
-    expiry_date: tokens.expiry_date ?? undefined,
-  });
-  client.on("tokens", (nuevos) => {
-    if (nuevos.access_token) {
-      supabase
-        .from("google_oauth_tokens")
-        .update({ access_token: nuevos.access_token, expiry_date: nuevos.expiry_date ?? null })
-        .eq("tenant_id", tenantId)
-        .then(undefined, () => {});
-    }
-  });
+  const client = await obtenerClienteOAuth(tenantId);
+  if (!client) return null;
   return google.calendar({ version: "v3", auth: client });
 }
 

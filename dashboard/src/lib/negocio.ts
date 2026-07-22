@@ -1,9 +1,13 @@
 import { getApiUrl } from "./api";
 import { TENANT_SLUG } from "./supabase";
 
+export type BotKind = "assistant" | "messaging" | "voice";
+
 export interface Negocio {
   nombre: string;
   subtitulo: string;
+  /** null hasta que /config/branding responde; el layout no debe decidir con un dato adivinado. */
+  kind: BotKind | null;
 }
 
 function nombreDesdeSlug(slug: string): string {
@@ -24,7 +28,12 @@ export function negocioInicial(): Negocio {
   return {
     nombre: nombrePorTenant || (import.meta.env.VITE_NEGOCIO_NOMBRE as string) || "Mi Negocio",
     subtitulo: "Consola del bot",
+    kind: null,
   };
+}
+
+function normalizarKind(value: unknown): BotKind | null {
+  return value === "assistant" || value === "messaging" || value === "voice" ? value : null;
 }
 
 /** Fetch the business name stored in the selected bot's tenant configuration. */
@@ -35,10 +44,10 @@ export async function cargarNegocio(): Promise<Negocio | null> {
   try {
     const response = await fetch(`${apiUrl}/api/${encodeURIComponent(TENANT_SLUG)}/config/branding`);
     if (!response.ok) return null;
-    const data = await response.json() as { nombre?: unknown; subtitulo?: unknown };
+    const data = await response.json() as { nombre?: unknown; subtitulo?: unknown; kind?: unknown };
     const nombre = typeof data.nombre === "string" ? data.nombre.trim() : "";
     const subtitulo = typeof data.subtitulo === "string" ? data.subtitulo.trim() : "";
-    return nombre ? { nombre, subtitulo: subtitulo || "Consola del bot" } : null;
+    return nombre ? { nombre, subtitulo: subtitulo || "Consola del bot", kind: normalizarKind(data.kind) } : null;
   } catch {
     return null;
   }

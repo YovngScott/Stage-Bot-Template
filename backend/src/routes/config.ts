@@ -22,6 +22,9 @@ configRouter.get("/branding", (req: Request, res: Response) => {
     nombre: tenant.config.nombre,
     nombreBot: tenant.config.nombreBot,
     subtitulo: "Consola del bot",
+    // El dashboard usa esto para decidir qué navegación mostrar: un bot
+    // "assistant" no tiene funnel de ventas ni catálogo que exhibir.
+    kind: tenant.config.kind,
   });
 });
 

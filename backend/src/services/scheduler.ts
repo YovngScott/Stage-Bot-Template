@@ -82,8 +82,8 @@ function programarTriajeAsistentes(): void {
             if (resumen.revisados > 0) {
               console.log(
                 `[scheduler:${tenant.config.slug}] Triaje — ${resumen.revisados} revisados, ` +
-                  `${resumen.descartadosHeuristica} descartados, ${resumen.borradoresCreados} borradores, ` +
-                  `${resumen.escaladosRevision} a revisión.`,
+                  `${resumen.descartadosHeuristica} descartados, ${resumen.enviados} enviados, ` +
+                  `${resumen.borradoresCreados} borradores, ${resumen.escaladosRevision} a revisión.`,
               );
             }
           } catch (err) {

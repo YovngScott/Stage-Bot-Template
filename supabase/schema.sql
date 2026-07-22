@@ -239,12 +239,13 @@ create table if not exists asistente_correos (
   justificacion     text,
   requiere_accion   boolean not null default false,
 
-  -- 'auto'     → superó el umbral, se creó borrador
-  -- 'revision' → confianza baja, escalado al ejecutivo por WhatsApp
-  -- 'omitido'  → descartado por la heurística
+  -- 'enviado'  → rutinario: se respondió y se envió automáticamente
+  -- 'revision' → crítico o ambiguo: se dejó BORRADOR y se avisó al titular
+  -- 'omitido'  → descartado por la heurística (no-reply, boletines, masivo)
   -- 'error'    → la IA falló; se trata como revisión humana
+  -- 'auto'     → legado: borradores creados antes del envío automático
   resultado         text not null default 'omitido'
-                    check (resultado in ('auto','revision','omitido','error')),
+                    check (resultado in ('enviado','auto','revision','omitido','error')),
   borrador_id       text,
   alerta_enviada    boolean not null default false,
 
@@ -252,6 +253,16 @@ create table if not exists asistente_correos (
   -- Un mismo correo no se procesa (ni se cobra en tokens) dos veces.
   unique (tenant_id, gmail_message_id)
 );
+
+-- El envío automático agregó el estado 'enviado'. Para las bases que ya
+-- tenían la tabla creada, `create table if not exists` no actualiza el CHECK:
+-- hay que reemplazar la restricción explícitamente. Idempotente.
+do $$
+begin
+  alter table asistente_correos drop constraint if exists asistente_correos_resultado_check;
+  alter table asistente_correos add constraint asistente_correos_resultado_check
+    check (resultado in ('enviado','auto','revision','omitido','error'));
+end $$;
 
 create index if not exists idx_asistente_correos_tenant_fecha
   on asistente_correos (tenant_id, procesado_en desc);
@@ -268,10 +279,14 @@ create table if not exists asistente_ejecuciones (
   revisados             integer not null default 0,
   descartados_heuristica integer not null default 0,
   clasificados          integer not null default 0,
+  enviados              integer not null default 0,
   borradores_creados    integer not null default 0,
   escalados_revision    integer not null default 0,
   error                 text
 );
+
+-- Columna agregada junto con el envío automático (ver migración).
+alter table asistente_ejecuciones add column if not exists enviados integer not null default 0;
 
 create index if not exists idx_asistente_ejecuciones_tenant
   on asistente_ejecuciones (tenant_id, iniciado_en desc);

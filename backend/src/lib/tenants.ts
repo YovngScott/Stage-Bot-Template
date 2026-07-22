@@ -40,6 +40,12 @@ export interface AsistenteConfig {
   actuaComoTitular: boolean;
   /** Nombre con el que firma cuando actuaComoTitular está activo. */
   nombreTitular: string;
+  /**
+   * true  → lo rutinario se RESPONDE Y ENVÍA solo, para vaciar la bandeja.
+   *         Lo crítico y lo ambiguo siguen quedando como borrador.
+   * false → nunca envía: todo queda en borradores para revisar.
+   */
+  enviarAutomatico: boolean;
   /** Taxonomía de categorías: nombre → descripción que ve el clasificador. */
   categorias: Record<string, string>;
 }
@@ -105,6 +111,9 @@ function normalizarAsistente(raw: any): AsistenteConfig | null {
     maxPorCorrida: Number.isFinite(maximo) && maximo >= 1 ? Math.min(maximo, 100) : 25,
     actuaComoTitular: raw.actuaComoTitular === true,
     nombreTitular: String(raw.nombreTitular ?? "").trim(),
+    // Enviar solo es la política por defecto del asistente: su valor está en
+    // vaciar la bandeja, no en llenarla de borradores por revisar.
+    enviarAutomatico: raw.enviarAutomatico !== false,
     categorias,
   };
 }

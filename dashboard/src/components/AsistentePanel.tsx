@@ -8,6 +8,7 @@ const API_URL = getApiUrl();
 interface Metricas {
   triadosHoy: number;
   descartadosAutomaticos: number;
+  enviadosSolos: number;
   borradoresCreados: number;
   pendientesRevision: number;
   confianzaPromedio: number | null;
@@ -22,7 +23,7 @@ interface CorreoTriado {
   prioridad: string | null;
   confianza: number | null;
   justificacion: string | null;
-  resultado: "auto" | "revision" | "omitido" | "error";
+  resultado: "enviado" | "auto" | "revision" | "omitido" | "error";
   motivo_descarte: string | null;
   borrador_id: string | null;
   alerta_enviada: boolean;
@@ -33,6 +34,7 @@ function fechaLegible(fecha: string): string {
 }
 
 const ETIQUETA_RESULTADO: Record<CorreoTriado["resultado"], { texto: string; color: string; fondo: string }> = {
+  enviado: { texto: "Respondido y enviado", color: "var(--good)", fondo: "var(--good-soft)" },
   auto: { texto: "Borrador listo", color: "var(--good)", fondo: "var(--good-soft)" },
   revision: { texto: "Necesita tu criterio", color: "#b8860b", fondo: "rgba(184,134,11,.12)" },
   omitido: { texto: "Descartado", color: "var(--text-muted)", fondo: "var(--baseline)" },
@@ -93,7 +95,7 @@ export function AsistentePanel() {
       if (!res.ok) throw new Error(data?.error ?? `Error ${res.status}`);
       const r = data.resumen;
       setMensajeTriaje(
-        `Listo: ${r.revisados} correos revisados, ${r.borradoresCreados} borradores creados, ${r.escaladosRevision} escalados.`,
+        `Listo: ${r.revisados} correos revisados, ${r.enviados} respondidos y enviados, ${r.escaladosRevision} esperando tu revisión.`,
       );
       await cargar();
     } catch (e: any) {
@@ -108,18 +110,23 @@ export function AsistentePanel() {
       <section className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <MetricCard titulo="Correos triados hoy" valor={metricas?.triadosHoy ?? 0} icono={IconMail} />
         <MetricCard
+          titulo="Respondidos solos"
+          valor={metricas?.enviadosSolos ?? 0}
+          icono={IconSparkles}
+          detalle="Enviados sin que tuvieras que intervenir"
+        />
+        <MetricCard
           titulo="Descartados automáticos"
           valor={metricas?.descartadosAutomaticos ?? 0}
           detalle="Boletines, no-reply, correo masivo"
         />
-        <MetricCard titulo="Borradores listos" valor={metricas?.borradoresCreados ?? 0} icono={IconSparkles} />
         <MetricCard
-          titulo="Pendientes de tu criterio"
+          titulo="Esperando tu revisión"
           valor={metricas?.pendientesRevision ?? 0}
           detalle={
-            metricas?.confianzaPromedio !== null && metricas?.confianzaPromedio !== undefined
-              ? `Confianza promedio: ${Math.round(metricas.confianzaPromedio * 100)}%`
-              : undefined
+            (metricas?.borradoresCreados ?? 0) > 0
+              ? `${metricas?.borradoresCreados} borradores más sin enviar`
+              : "Con el borrador ya escrito"
           }
         />
       </section>
@@ -129,8 +136,9 @@ export function AsistentePanel() {
           <div>
             <h2 className="text-base font-semibold">Correos que necesitan tu criterio</h2>
             <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-              El asistente redacta el resto por su cuenta. Estos los dejó intactos porque deben salir
-              de tu parte —o porque no terminó de entenderlos— y te avisó por WhatsApp.
+              El resto ya lo respondió y lo envió solo. Estos NO los envió —deben salir de tu parte, o
+              no terminó de entenderlos—, pero te dejó la respuesta escrita como borrador en Gmail:
+              revísala, ajusta lo que haga falta y dale a Enviar.
             </p>
           </div>
           <button

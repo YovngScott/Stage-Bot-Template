@@ -16,6 +16,7 @@ interface EstadoAsistente {
   horaReporte: string | null;
   actuaComoTitular: boolean | null;
   nombreTitular: string | null;
+  enviarAutomatico: boolean | null;
 }
 
 /**
@@ -138,8 +139,8 @@ export function AsistenteConexionGmail() {
                 {conectando ? "Abriendo Google…" : `Conectar Gmail (${estado.correoConfigurado})`}
               </button>
               <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
-                Se abrirá una pestaña de Google con {estado.correoConfigurado} ya preseleccionado. Solo puede leer y
-                redactar borradores — nunca envía correo por su cuenta. Al terminar, cierra esa pestaña y vuelve aquí.
+                Se abrirá una pestaña de Google con {estado.correoConfigurado} ya preseleccionado. Al terminar,
+                cierra esa pestaña y vuelve aquí.
               </p>
             </div>
           )}
@@ -159,11 +160,19 @@ export function AsistenteConexionGmail() {
                 <dd className="font-medium">{estado.horaReporte ?? "18:00"}</dd>
               </div>
               <div className="col-span-2 sm:col-span-3">
-                <dt style={{ color: "var(--text-muted)" }}>Firma de los borradores</dt>
+                <dt style={{ color: "var(--text-muted)" }}>Cómo responde</dt>
+                <dd className="font-medium">
+                  {estado.enviarAutomatico
+                    ? "Lo rutinario lo responde y lo envía solo. Lo delicado y lo que no entienda te lo deja como borrador para que lo revises y lo mandes tú."
+                    : "Nunca envía: todo queda como borrador en tu bandeja para que lo revises."}
+                </dd>
+              </div>
+              <div className="col-span-2 sm:col-span-3">
+                <dt style={{ color: "var(--text-muted)" }}>Firma</dt>
                 <dd className="font-medium">
                   {estado.actuaComoTitular
-                    ? `Se redactan a nombre de ${estado.nombreTitular} — nada se envía sin que tú lo revises.`
-                    : "Se redactan identificándose como tu asistente."}
+                    ? `A nombre de ${estado.nombreTitular}, sin mencionar que hay un asistente.`
+                    : "Se identifica como tu asistente."}
                 </dd>
               </div>
             </dl>

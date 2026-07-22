@@ -64,6 +64,7 @@ asistenteRouter.get("/estado", requiereAdmin, async (req: Request, res: Response
     horaReporte: asistente.horaReporte,
     actuaComoTitular: asistente.actuaComoTitular,
     nombreTitular: asistente.nombreTitular || tenant.config.nombre,
+    enviarAutomatico: asistente.enviarAutomatico,
     error: perfil ? null : 'Gmail sin conectar. Usa el botón "Conectar Gmail".',
   });
 });
@@ -110,6 +111,7 @@ asistenteRouter.get("/metricas", requiereAdmin, async (req: Request, res: Respon
     res.json({
       triadosHoy: filas.length,
       descartadosAutomaticos: filas.filter((f: any) => f.filtrado_heuristica).length,
+      enviadosSolos: filas.filter((f: any) => f.resultado === "enviado").length,
       borradoresCreados: filas.filter((f: any) => f.resultado === "auto").length,
       pendientesRevision: filas.filter((f: any) => f.resultado === "revision" || f.resultado === "error").length,
       confianzaPromedio: confianzaPromedio === null ? null : Number(confianzaPromedio.toFixed(3)),

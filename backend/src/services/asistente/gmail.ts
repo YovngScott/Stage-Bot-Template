@@ -21,6 +21,8 @@ export interface CorreoGmail {
   /** Texto plano del cuerpo, recortado. Se usa para clasificar y NUNCA se persiste. */
   cuerpo: string;
   recibidoEn: string;
+  /** Message-Id original: encadena la respuesta al hilo en el cliente del destinatario. */
+  messageId?: string;
 }
 
 export async function obtenerClienteGmail(tenantId: string): Promise<gmail_v1.Gmail | null> {
@@ -116,6 +118,7 @@ export async function obtenerCorreo(gmail: gmail_v1.Gmail, id: string): Promise<
       precedence: leerEncabezado(headers, "Precedence"),
       autoSubmitted: leerEncabezado(headers, "Auto-Submitted"),
     },
+    messageId: leerEncabezado(headers, "Message-Id"),
     // 4000 caracteres bastan para clasificar y acotan el gasto de tokens.
     cuerpo: extraerCuerpo(mensaje.payload).slice(0, 4000),
     recibidoEn: mensaje.internalDate
@@ -124,33 +127,61 @@ export async function obtenerCorreo(gmail: gmail_v1.Gmail, id: string): Promise<
   };
 }
 
-/**
- * Crea un BORRADOR de respuesta en el hilo original. Nunca envía: el scope
- * gmail.compose no lo permite, por diseño — la última palabra es del humano.
- */
-export async function crearBorrador(
-  gmail: gmail_v1.Gmail,
-  args: { threadId: string; para: string; asunto: string; cuerpo: string },
-): Promise<string | null> {
+export interface RespuestaCorreo {
+  threadId: string;
+  para: string;
+  asunto: string;
+  cuerpo: string;
+  /** Message-Id del correo original, para que la respuesta cuelgue del hilo. */
+  messageId?: string;
+}
+
+/** Arma el MIME de una respuesta, en base64url como lo pide la API de Gmail. */
+function construirMime(args: RespuestaCorreo): string {
   const asunto = args.asunto.toLowerCase().startsWith("re:") ? args.asunto : `Re: ${args.asunto}`;
-  // Codificamos el asunto en base64 (RFC 2047) para no romper con acentos.
+  // Asunto en base64 (RFC 2047): sin esto los acentos llegan rotos.
   const asuntoCodificado = `=?UTF-8?B?${Buffer.from(asunto, "utf8").toString("base64")}?=`;
 
-  const mime = [
+  const cabeceras = [
     `To: ${args.para}`,
     `Subject: ${asuntoCodificado}`,
     "MIME-Version: 1.0",
     'Content-Type: text/plain; charset="UTF-8"',
-    "",
-    args.cuerpo,
-  ].join("\r\n");
+  ];
+  // Sin estas dos cabeceras el cliente de correo del destinatario muestra la
+  // respuesta como un mensaje suelto en vez de dentro de la conversación.
+  if (args.messageId) {
+    cabeceras.push(`In-Reply-To: ${args.messageId}`, `References: ${args.messageId}`);
+  }
 
+  return Buffer.from([...cabeceras, "", args.cuerpo].join("\r\n"), "utf8").toString("base64url");
+}
+
+/**
+ * Crea un BORRADOR de respuesta en el hilo original, sin enviarlo. Se usa para
+ * lo que debe pasar por el titular antes de salir.
+ */
+export async function crearBorrador(gmail: gmail_v1.Gmail, args: RespuestaCorreo): Promise<string | null> {
   const res = await conReintentos(() =>
     gmail.users.drafts.create({
       userId: "me",
-      requestBody: {
-        message: { threadId: args.threadId, raw: Buffer.from(mime, "utf8").toString("base64url") },
-      },
+      requestBody: { message: { threadId: args.threadId, raw: construirMime(args) } },
+    }),
+  );
+  return res.data.id ?? null;
+}
+
+/**
+ * ENVÍA la respuesta directamente, sin pasar por la bandeja de borradores. Se
+ * reserva para lo rutinario: el correo sale a nombre del titular sin que él lo
+ * vea antes, así que quien llama debe estar seguro de que el caso no requiere
+ * su criterio (ver el gate en triaje.ts).
+ */
+export async function enviarRespuesta(gmail: gmail_v1.Gmail, args: RespuestaCorreo): Promise<string | null> {
+  const res = await conReintentos(() =>
+    gmail.users.messages.send({
+      userId: "me",
+      requestBody: { threadId: args.threadId, raw: construirMime(args) },
     }),
   );
   return res.data.id ?? null;

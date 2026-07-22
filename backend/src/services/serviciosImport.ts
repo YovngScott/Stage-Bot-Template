@@ -44,10 +44,24 @@ function normClave(s: string): string {
 
 function campo(fila: Record<string, any>, ...nombres: string[]): any {
   const claves = Object.keys(fila);
-  for (const objetivo of nombres.map(normClave)) {
+  const objetivos = nombres.map(normClave);
+
+  // 1) Coincidencia exacta (ej. columna "Precio").
+  for (const objetivo of objetivos) {
     const clave = claves.find((k) => normClave(k) === objetivo);
     if (clave && String(fila[clave]).trim() !== "") return fila[clave];
   }
+
+  // 2) Coincidencia parcial: encabezados con texto extra (ej. "Precio
+  // Unitario", "Nombre del producto", "Cantidad en stock") no calzan exacto
+  // pero sí contienen la palabra clave — sin esto se descartaban filas
+  // válidas solo porque el Excel del cliente no usa el nombre de columna
+  // pelado.
+  for (const objetivo of objetivos) {
+    const clave = claves.find((k) => normClave(k).includes(objetivo));
+    if (clave && String(fila[clave]).trim() !== "") return fila[clave];
+  }
+
   return undefined;
 }
 
@@ -132,9 +146,11 @@ export async function procesarPreciosStock(
   }
   const cambios: CambioPS[] = [];
   for (const fila of filasCrudas) {
-    const nombre = String(campo(fila, "nombre", "producto", "servicio", "name") ?? "").trim();
-    const precioRaw = campo(fila, "precio", "price", "costo");
-    const stockRaw = campo(fila, "stock", "existencia", "cantidad", "qty");
+    const nombre = String(
+      campo(fila, "nombre", "producto", "servicio", "name", "articulo", "item", "descripcion") ?? "",
+    ).trim();
+    const precioRaw = campo(fila, "precio", "price", "costo", "valor");
+    const stockRaw = campo(fila, "stock", "existencia", "cantidad", "qty", "inventario");
     const precio = precioRaw !== undefined ? aNumero(precioRaw) : undefined;
     const stock = stockRaw !== undefined ? aNumero(stockRaw) : undefined;
     const tienePrecio = precio !== undefined && Number.isFinite(precio) && precio >= 0;

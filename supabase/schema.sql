@@ -288,6 +288,28 @@ create table if not exists asistente_ejecuciones (
 -- Columna agregada junto con el envío automático (ver migración).
 alter table asistente_ejecuciones add column if not exists enviados integer not null default 0;
 
+-- ----------------------------------------------------------------------------
+-- 5f. CUENTAS DE CORREO DEL ASISTENTE — una por tenant, cualquier proveedor.
+--
+--    Google sigue usando `google_oauth_tokens` (la comparte con Calendar, que
+--    ya estaba). Esta tabla guarda las credenciales de los demás proveedores.
+--
+--    ⚠️ `credenciales` viene CIFRADO por el backend (AES-256-GCM, lib/cripto.ts):
+--    aquí nunca hay una contraseña IMAP legible. Y la RLS de más abajo no da
+--    NINGUNA política de lectura a `authenticated`, así que el dashboard del
+--    cliente no puede leer esta tabla ni por error — solo el backend, que usa
+--    la service_role key.
+-- ----------------------------------------------------------------------------
+create table if not exists asistente_cuentas (
+  tenant_id      uuid primary key references tenants (id) on delete cascade,
+  proveedor      text not null check (proveedor in ('gmail','microsoft','imap')),
+  cuenta_email   text,
+  -- JSON cifrado. Su forma depende del proveedor (refresh_token para Microsoft;
+  -- host/puerto/usuario/contraseña para IMAP).
+  credenciales   text,
+  actualizado_en timestamptz not null default now()
+);
+
 create index if not exists idx_asistente_ejecuciones_tenant
   on asistente_ejecuciones (tenant_id, iniciado_en desc);
 
@@ -401,6 +423,10 @@ alter table empleados           enable row level security;
 alter table google_oauth_tokens enable row level security;
 alter table asistente_correos     enable row level security;
 alter table asistente_ejecuciones enable row level security;
+-- asistente_cuentas: RLS activa y SIN políticas, igual que super_admins. Nadie
+-- con la anon/authenticated key puede tocarla; solo el backend (service_role).
+-- Contiene credenciales de buzones: el dashboard no tiene por qué leerla.
+alter table asistente_cuentas     enable row level security;
 -- super_admins: sin políticas → nadie con la anon/authenticated key puede leer
 -- ni escribir. Solo se gestiona a mano (service_role) desde Supabase.
 alter table super_admins        enable row level security;

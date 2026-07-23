@@ -2,27 +2,19 @@ import { supabase } from "../../lib/supabase.js";
 import type { Tenant } from "../../lib/tenants.js";
 import { enviarMensajeTexto } from "../baileys.js";
 import { clasificarCorreo, type Clasificacion } from "./clasificador.js";
-import {
-  asegurarEtiqueta,
-  crearBorrador,
-  enviarRespuesta,
-  etiquetarCorreo,
-  listarCorreosNuevos,
-  obtenerClienteGmail,
-  obtenerCorreo,
-  type CorreoGmail,
-} from "./gmail.js";
+import { obtenerProveedorCorreo, type CorreoEntrante, type EmailProvider } from "./proveedores/index.js";
 import { describirMotivo, evaluarHeuristica, extraerDireccion } from "./heuristica.js";
 
 /**
  * Orquestador del pipeline de triaje:
  *
- *   Ingesta (Gmail) → Filtro heurístico → Clasificación IA → Confidence gate
- *                                                              ├─ >= umbral → borrador automático
- *                                                              └─ <  umbral → alerta al ejecutivo
+ *   Ingesta → Filtro heurístico → Clasificación IA → ¿enviar o dejar borrador?
+ *                                                     ├─ rutinario → se responde y se ENVÍA
+ *                                                     └─ crítico o ambiguo → borrador + alerta
  *
- * El umbral lo define el Owner Console al crear el bot (default 0.70). La
- * regla de oro: ante la duda, escalar a un humano — nunca responder por él.
+ * Trabaja contra la interfaz EmailProvider, así que funciona igual con Gmail,
+ * Microsoft o un correo corporativo por IMAP. La regla de oro: ante la duda,
+ * decide el titular — nunca se envía por él.
  */
 
 export interface ResumenCorrida {
@@ -64,7 +56,7 @@ async function obtenerUltimaMarca(tenantId: string): Promise<Date | null> {
 
 function alertaWhatsApp(
   tenant: Tenant,
-  correo: CorreoGmail,
+  correo: CorreoEntrante,
   clasificacion: Clasificacion | null,
   hayBorrador = false,
 ): string {
@@ -76,7 +68,7 @@ function alertaWhatsApp(
       `*De:* ${remitente}`,
       `*Asunto:* ${correo.encabezados.subject}`,
       "",
-      "No pude analizarlo con seguridad, así que no envié nada. Revísalo tú en Gmail.",
+      "No pude analizarlo con seguridad, así que no envié nada. Revísalo tú en tu bandeja.",
     ].join("\n");
   }
 
@@ -132,7 +124,7 @@ export async function responderComandoWhatsApp(tenant: Tenant, texto: string): P
       `📊 *${tenant.config.nombreBot}* — resumen de hoy`,
       `Correos revisados: ${filas.length}`,
       `Respondidos y enviados: ${enviados}`,
-      ...(borradores ? [`Borradores listos en Gmail: ${borradores}`] : []),
+      ...(borradores ? [`Borradores listos: ${borradores}`] : []),
       `Esperando tu revisión: ${pendientes}`,
       "",
       `Bandeja: ${asistente?.correo ?? "sin configurar"}`,
@@ -189,30 +181,29 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
     .maybeSingle();
   const ejecucionId = ejecucion?.id as string | undefined;
 
+  // Fuera del try para poder cerrarlo en el finally: IMAP deja una conexión
+  // abierta que hay que soltar pase lo que pase.
+  let proveedor: EmailProvider | null = null;
+
   try {
-    const gmail = await obtenerClienteGmail(tenant.id);
-    if (!gmail) {
-      throw new Error("Gmail no está conectado. El ejecutivo debe autorizar su cuenta desde el dashboard.");
+    proveedor = await obtenerProveedorCorreo(tenant);
+    if (!proveedor) {
+      throw new Error("El correo no está conectado. El ejecutivo debe autorizar su cuenta desde el dashboard.");
     }
 
     const desde = await obtenerUltimaMarca(tenant.id);
-    const candidatos = await listarCorreosNuevos(gmail, desde, asistente.maxPorCorrida);
+    const candidatos = await proveedor.listarNuevos(desde, asistente.maxPorCorrida);
     const pendientes = await filtrarYaProcesados(tenant.id, candidatos);
 
-    // Las etiquetas son informativas; si Gmail las rechaza seguimos igual.
-    const etiquetaEnviado = await asegurarEtiqueta(gmail, "Respondido solo");
-    const etiquetaAuto = await asegurarEtiqueta(gmail, "Borrador listo");
-    const etiquetaRevision = await asegurarEtiqueta(gmail, "Requiere revisión");
-
     for (const id of pendientes) {
-      const correo = await obtenerCorreo(gmail, id);
+      const correo = await proveedor.obtener(id);
       if (!correo) continue;
       resumen.revisados += 1;
 
       const fila: Record<string, unknown> = {
         tenant_id: tenant.id,
         gmail_message_id: correo.id,
-        gmail_thread_id: correo.threadId,
+        gmail_thread_id: correo.hiloId,
         remitente: extraerDireccion(correo.encabezados.from),
         asunto: correo.encabezados.subject.slice(0, 500),
         recibido_en: correo.recibidoEn,
@@ -237,7 +228,7 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
         resumen.escaladosRevision += 1;
         const avisado = await avisarEjecutivo(tenant, alertaWhatsApp(tenant, correo, null));
         await supabase.from("asistente_correos").insert({ ...fila, resultado: "error", alerta_enviada: avisado });
-        if (etiquetaRevision) await etiquetarCorreo(gmail, correo.id, etiquetaRevision);
+        await proveedor.etiquetar(correo.id, "revision");
         continue;
       }
 
@@ -265,22 +256,22 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
 
       if (!debeDecidirElTitular && respuesta && asistente.enviarAutomatico) {
         const destino = {
-          threadId: correo.threadId,
+          hiloId: correo.hiloId,
           para: respuesta.destinatario,
           asunto: respuesta.asunto,
           cuerpo: respuesta.cuerpo,
           messageId: correo.messageId,
         };
         try {
-          await enviarRespuesta(gmail, destino);
+          await proveedor.enviar(destino);
           resumen.enviados += 1;
           await supabase.from("asistente_correos").insert({ ...fila, resultado: "enviado" });
-          if (etiquetaEnviado) await etiquetarCorreo(gmail, correo.id, etiquetaEnviado);
+          await proveedor.etiquetar(correo.id, "enviado");
         } catch (err) {
           // Si el envío falla no perdemos el trabajo: se deja como borrador y
           // se avisa, que es el mismo camino de los correos que sí revisa.
           console.error(`[asistente:${tenant.config.slug}] Falló el envío de ${correo.id}; queda en borrador:`, err);
-          const borradorId = await crearBorrador(gmail, destino).catch(() => null);
+          const borradorId = await proveedor.crearBorrador(destino).catch(() => null);
           resumen.escaladosRevision += 1;
           const avisado = await avisarEjecutivo(
             tenant,
@@ -289,7 +280,7 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
           await supabase
             .from("asistente_correos")
             .insert({ ...fila, resultado: "revision", borrador_id: borradorId, alerta_enviada: avisado });
-          if (etiquetaRevision) await etiquetarCorreo(gmail, correo.id, etiquetaRevision);
+          await proveedor.etiquetar(correo.id, "revision");
         }
         continue;
       }
@@ -297,8 +288,8 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
       if (!debeDecidirElTitular && respuesta) {
         // Envío automático apagado para este cliente: se comporta como antes,
         // dejando todo en borradores.
-        const borradorId = await crearBorrador(gmail, {
-          threadId: correo.threadId,
+        const borradorId = await proveedor.crearBorrador({
+          hiloId: correo.hiloId,
           para: respuesta.destinatario,
           asunto: respuesta.asunto,
           cuerpo: respuesta.cuerpo,
@@ -309,7 +300,7 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
         });
         resumen.borradoresCreados += 1;
         await supabase.from("asistente_correos").insert({ ...fila, resultado: "auto", borrador_id: borradorId });
-        if (etiquetaAuto) await etiquetarCorreo(gmail, correo.id, etiquetaAuto);
+        await proveedor.etiquetar(correo.id, "borrador");
         continue;
       }
 
@@ -323,8 +314,8 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
       // Requiere su criterio → NO se envía. Se le deja el borrador escrito y
       // se le avisa, para que solo tenga que revisarlo y darle a Enviar.
       const borradorId = respuesta
-        ? await crearBorrador(gmail, {
-            threadId: correo.threadId,
+        ? await proveedor.crearBorrador({
+            hiloId: correo.hiloId,
             para: respuesta.destinatario,
             asunto: respuesta.asunto,
             cuerpo: respuesta.cuerpo,
@@ -340,11 +331,15 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
       await supabase
         .from("asistente_correos")
         .insert({ ...fila, resultado: "revision", borrador_id: borradorId, alerta_enviada: avisado });
-      if (etiquetaRevision) await etiquetarCorreo(gmail, correo.id, etiquetaRevision);
+      await proveedor.etiquetar(correo.id, "revision");
     }
   } catch (err: any) {
     resumen.error = err?.message ?? "Error inesperado durante el triaje.";
     console.error(`[asistente:${tenant.config.slug}] Triaje fallido:`, err);
+  } finally {
+    // IMAP mantiene un socket abierto; dejarlo colgado agota las conexiones
+    // del servidor de correo tras unas cuantas corridas.
+    await proveedor?.cerrar?.().catch(() => {});
   }
 
   if (ejecucionId) {

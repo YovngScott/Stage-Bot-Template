@@ -50,6 +50,25 @@ export const config = {
     oauthRedirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI ?? "",
   },
 
+  // Microsoft Entra ID (Azure AD): UNA sola app registrada sirve para TODOS los
+  // tenants, igual que con Google. Cada cliente autoriza su propia cuenta de
+  // Outlook/Microsoft 365 desde su dashboard.
+  microsoft: {
+    clientId: process.env.MICROSOFT_OAUTH_CLIENT_ID ?? "",
+    clientSecret: process.env.MICROSOFT_OAUTH_CLIENT_SECRET ?? "",
+    redirectUri: process.env.MICROSOFT_OAUTH_REDIRECT_URI ?? "",
+    // "common" acepta cuentas personales (Hotmail/Outlook.com) y de empresa.
+    tenantId: process.env.MICROSOFT_OAUTH_TENANT_ID || "common",
+  },
+
+  // Llave para cifrar las credenciales de correo que no son OAuth (contraseñas
+  // de aplicación de IMAP/SMTP). Genera un valor largo y aleatorio, ej.
+  // `openssl rand -hex 32`. Sin esto, conectar un correo por IMAP falla a
+  // propósito en vez de guardar una contraseña en claro.
+  credenciales: {
+    secreto: process.env.CREDENCIALES_SECRET ?? "",
+  },
+
   // Carpeta base para las sesiones de WhatsApp (Baileys). Cada tenant tiene su
   // propia subcarpeta: `${baileysAuthDirBase}/<slug>/`.
   baileysAuthDirBase: process.env.BAILEYS_AUTH_DIR || "./.baileys_auth",

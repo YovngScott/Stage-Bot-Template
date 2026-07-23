@@ -11,9 +11,17 @@ export type BotKind = "assistant" | "messaging" | "voice";
  * "assistant"). TODO esto lo llena el Bot Builder del Owner Console al crear
  * el bot — nunca se edita a mano ni viene con valores de un correo concreto.
  */
+/** Proveedores de correo soportados por el asistente. */
+export type ProveedorCorreoTenant = "gmail" | "microsoft" | "imap";
+
 export interface AsistenteConfig {
   /** Correo que el asistente va a triar. Lo pide el Bot Builder al crear el bot. */
   correo: string;
+  /**
+   * Con qué servicio está el buzón. Decide qué adaptador se usa; el resto del
+   * pipeline funciona igual con cualquiera.
+   */
+  proveedor: ProveedorCorreoTenant;
   /** Número de WhatsApp (con código de país) donde el ejecutivo recibe alertas. */
   whatsappAlertas: string;
   /**
@@ -27,15 +35,18 @@ export interface AsistenteConfig {
   horaReporte: string;
   /** Cada cuántos minutos se consulta la bandeja (consultas por lotes, sin Pub/Sub). */
   intervaloMinutos: number;
-  /** Máximo de correos a procesar por corrida, para respetar la cuota de Gmail. */
+  /** Máximo de correos a procesar por corrida, para no agotar la cuota del proveedor. */
   maxPorCorrida: number;
   /**
    * true  → redacta en primera persona como el titular, sin mencionar que hay
-   *         un asistente de por medio. Seguro por diseño: el asistente solo
-   *         crea BORRADORES (scope gmail.compose), así que nada sale sin que
-   *         el titular lo lea y lo envíe él mismo.
+   *         un asistente de por medio.
    * false → se presenta como asistente que escribe en nombre del titular.
    * Por defecto false: identificarse es la opción conservadora.
+   *
+   * OJO: combinado con `enviarAutomatico`, esto significa que salen correos a
+   * nombre del titular sin que él los lea antes. Lo que acota el riesgo no es
+   * el permiso —el scope de envío sí lo permite— sino el gate del triaje, que
+   * manda a borrador todo lo delicado o ambiguo.
    */
   actuaComoTitular: boolean;
   /** Nombre con el que firma cuando actuaComoTitular está activo. */
@@ -100,8 +111,12 @@ function normalizarAsistente(raw: any): AsistenteConfig | null {
       ? (raw.categorias as Record<string, string>)
       : CATEGORIAS_POR_DEFECTO;
 
+  const proveedor: ProveedorCorreoTenant =
+    raw.proveedor === "microsoft" || raw.proveedor === "imap" ? raw.proveedor : "gmail";
+
   return {
     correo,
+    proveedor,
     whatsappAlertas: String(raw.whatsappAlertas ?? "").replace(/[^\d]/g, ""),
     // Bajo a propósito: la política es redactar por defecto, así que este
     // valor solo frena los correos que la IA realmente no entendió.

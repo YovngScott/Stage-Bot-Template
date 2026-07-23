@@ -43,6 +43,9 @@ app.use("/api/:slug/asistente", resolverTenant, asistenteRouter);
 // aquí también (sin resolverTenant); solo su ruta /oauth-callback no
 // requiere req.tenant, así que es la única que funciona por esta vía.
 app.use("/api/calendar", calendarRouter);
+// Mismo motivo para Microsoft: su "redirect URI" registrada en Entra ID es
+// fija, sin :slug. El tenant se recupera del `state` dentro del router.
+app.use("/api/asistente", asistenteRouter);
 
 async function iniciar() {
   const tenants = await cargarTenants();

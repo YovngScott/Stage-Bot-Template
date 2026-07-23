@@ -1,6 +1,6 @@
 import { config } from "../../lib/config.js";
 import type { AsistenteConfig, Tenant } from "../../lib/tenants.js";
-import type { CorreoGmail } from "./gmail.js";
+import type { CorreoEntrante } from "./proveedores/index.js";
 
 /**
  * Capa de clasificación por IA. Solo la alcanzan los correos que sobrevivieron
@@ -153,7 +153,7 @@ function normalizarCategoria(valor: unknown, categorias: Record<string, string>)
   return nombres.find((n) => n.toLowerCase() === texto) ?? nombres[nombres.length - 1] ?? "General_Ops";
 }
 
-function normalizarBorrador(valor: any, correo: CorreoGmail): BorradorSugerido | null {
+function normalizarBorrador(valor: any, correo: CorreoEntrante): BorradorSugerido | null {
   const cuerpo = String(valor?.body_draft ?? "").trim();
   if (!valor || typeof valor !== "object" || !cuerpo) return null;
   return {
@@ -182,7 +182,7 @@ function normalizarTarea(valor: any): TareaExtraida | null {
 export async function clasificarCorreo(
   tenant: Tenant,
   asistente: AsistenteConfig,
-  correo: CorreoGmail,
+  correo: CorreoEntrante,
 ): Promise<Clasificacion | null> {
   if (!config.groq.apiKey) {
     console.error("[asistente:clasificador] Falta GROQ_API_KEY; no se puede clasificar.");

@@ -4,9 +4,13 @@ import { IconCheck, IconMail, IconWarning } from "./Icons";
 
 const API_URL = getApiUrl();
 
+type ProveedorCorreo = "gmail" | "microsoft" | "imap";
+
 interface EstadoAsistente {
   configurado: boolean;
   conectado: boolean;
+  proveedor: ProveedorCorreo | null;
+  proveedorNombre: string | null;
   error: string | null;
   cuentaCoincide: boolean | null;
   correoConfigurado: string | null;
@@ -20,9 +24,10 @@ interface EstadoAsistente {
 }
 
 /**
- * Conexión de Gmail del asistente. El correo a atender lo definió el Bot
- * Builder al crear el bot — aquí solo se autoriza esa cuenta con un clic
- * (Google ya la preselecciona por el login_hint que manda el backend).
+ * Conexión del buzón del asistente, sea cual sea el proveedor. El correo y el
+ * proveedor los definió el Bot Builder al crear el bot; aquí el ejecutivo solo
+ * autoriza: un clic en Gmail/Microsoft (la cuenta viene preseleccionada), o
+ * los datos del servidor si es un correo corporativo por IMAP.
  */
 export function AsistenteConexionGmail() {
   const [estado, setEstado] = useState<EstadoAsistente | null>(null);
@@ -72,7 +77,7 @@ export function AsistenteConexionGmail() {
       <div className="mb-1 flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
           <IconMail />
-          Conexión de Gmail
+          {estado?.proveedorNombre ? `Conexión de ${estado.proveedorNombre}` : "Conexión del correo"}
         </h2>
         <button
           type="button"
@@ -127,7 +132,7 @@ export function AsistenteConexionGmail() {
             </p>
           )}
 
-          {!estado.conectado && (
+          {!estado.conectado && estado.proveedor !== "imap" && (
             <div className="mt-4">
               <button
                 type="button"
@@ -136,13 +141,19 @@ export function AsistenteConexionGmail() {
                 className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
                 style={{ background: "var(--accent)" }}
               >
-                {conectando ? "Abriendo Google…" : `Conectar Gmail (${estado.correoConfigurado})`}
+                {conectando ? "Abriendo…" : `Conectar ${estado.proveedorNombre} (${estado.correoConfigurado})`}
               </button>
               <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
-                Se abrirá una pestaña de Google con {estado.correoConfigurado} ya preseleccionado. Al terminar,
-                cierra esa pestaña y vuelve aquí.
+                Se abrirá una pestaña con {estado.correoConfigurado} ya preseleccionado. Al terminar, ciérrala
+                y vuelve aquí.
               </p>
             </div>
+          )}
+
+          {/* Un correo corporativo no tiene consentimiento OAuth: se conecta
+              con los datos del servidor. */}
+          {!estado.conectado && estado.proveedor === "imap" && (
+            <FormularioImap correo={estado.correoConfigurado ?? ""} alConectar={consultar} />
           )}
 
           {estado.conectado && (
@@ -179,6 +190,115 @@ export function AsistenteConexionGmail() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Conexión de un correo corporativo por IMAP/SMTP. A diferencia de Gmail o
+ * Microsoft, aquí no hay consentimiento OAuth: el ejecutivo carga los datos de
+ * su servidor. La contraseña viaja al backend, que la cifra antes de guardarla
+ * y nunca la devuelve.
+ */
+function FormularioImap({ correo, alConectar }: { correo: string; alConectar: () => void }) {
+  const [datos, setDatos] = useState({
+    host: "",
+    puerto: "993",
+    usuario: correo,
+    contrasena: "",
+    smtpHost: "",
+    smtpPuerto: "587",
+    carpetaBorradores: "Drafts",
+  });
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const actualizar = (campo: keyof typeof datos) => (e: { target: { value: string } }) =>
+    setDatos((actual) => ({ ...actual, [campo]: e.target.value }));
+
+  async function guardar() {
+    setGuardando(true);
+    setError(null);
+    try {
+      const res = await adminFetch("/asistente/credenciales", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...datos,
+          puerto: Number(datos.puerto),
+          smtpPuerto: Number(datos.smtpPuerto),
+        }),
+      });
+      const cuerpo = await res.json();
+      if (!res.ok) throw new Error(cuerpo?.error ?? `Error ${res.status}`);
+      alConectar();
+    } catch (e: any) {
+      setError(e?.message ?? "No se pudo conectar con el servidor de correo.");
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  const campo = "w-full rounded-md border px-2 py-1.5 text-sm";
+  const estiloCampo = { borderColor: "var(--border-strong)", background: "transparent", color: "var(--text-primary)" };
+
+  return (
+    <div className="mt-4 rounded-lg border p-4" style={{ borderColor: "var(--border)" }}>
+      <p className="text-sm font-medium">Datos de tu servidor de correo</p>
+      <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+        Los encuentras en el panel de tu proveedor de hosting o correo. Si tu cuenta tiene verificación en dos
+        pasos, usa una <strong>contraseña de aplicación</strong>, no la de tu cuenta.
+      </p>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <label className="text-xs">
+          <span style={{ color: "var(--text-muted)" }}>Servidor IMAP</span>
+          <input className={campo} style={estiloCampo} value={datos.host} onChange={actualizar("host")} placeholder="imap.midominio.com" />
+        </label>
+        <label className="text-xs">
+          <span style={{ color: "var(--text-muted)" }}>Puerto IMAP</span>
+          <input className={campo} style={estiloCampo} value={datos.puerto} onChange={actualizar("puerto")} placeholder="993" />
+        </label>
+        <label className="text-xs">
+          <span style={{ color: "var(--text-muted)" }}>Usuario</span>
+          <input className={campo} style={estiloCampo} value={datos.usuario} onChange={actualizar("usuario")} placeholder={correo} />
+        </label>
+        <label className="text-xs">
+          <span style={{ color: "var(--text-muted)" }}>Contraseña de aplicación</span>
+          <input type="password" autoComplete="off" className={campo} style={estiloCampo} value={datos.contrasena} onChange={actualizar("contrasena")} />
+        </label>
+        <label className="text-xs">
+          <span style={{ color: "var(--text-muted)" }}>Servidor SMTP (envío)</span>
+          <input className={campo} style={estiloCampo} value={datos.smtpHost} onChange={actualizar("smtpHost")} placeholder="smtp.midominio.com" />
+        </label>
+        <label className="text-xs">
+          <span style={{ color: "var(--text-muted)" }}>Puerto SMTP</span>
+          <input className={campo} style={estiloCampo} value={datos.smtpPuerto} onChange={actualizar("smtpPuerto")} placeholder="587" />
+        </label>
+        <label className="text-xs sm:col-span-2">
+          <span style={{ color: "var(--text-muted)" }}>Carpeta de borradores</span>
+          <input className={campo} style={estiloCampo} value={datos.carpetaBorradores} onChange={actualizar("carpetaBorradores")} placeholder="Drafts" />
+        </label>
+      </div>
+
+      {error && (
+        <p className="mt-3 flex items-center gap-1.5 text-sm" role="alert" style={{ color: "var(--bad)" }}>
+          <IconWarning /> {error}
+        </p>
+      )}
+
+      <button
+        type="button"
+        onClick={guardar}
+        disabled={guardando}
+        className="mt-4 rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+        style={{ background: "var(--accent)" }}
+      >
+        {guardando ? "Comprobando conexión…" : "Conectar buzón"}
+      </button>
+      <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+        Se probará la conexión antes de guardar. Tu contraseña se almacena cifrada y no vuelve a mostrarse.
+      </p>
     </div>
   );
 }

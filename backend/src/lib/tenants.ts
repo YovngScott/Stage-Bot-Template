@@ -206,6 +206,37 @@ function cargarConfigsDeDisco(): TenantConfig[] {
   return configs;
 }
 
+/**
+ * El dashboard del cliente habla de "canales"; aquí el mismo concepto se llama
+ * `kind`. Esta es la única traducción entre ambos vocabularios.
+ */
+const CANAL_POR_KIND: Record<BotKind, string> = {
+  assistant: "asistente",
+  voice: "llamadas",
+  messaging: "mensajes",
+};
+
+/** Escribe el canal del tenant, tolerando que la columna todavía no exista. */
+async function sincronizarCanal(tenantId: string, kind: BotKind): Promise<void> {
+  const { error } = await supabase
+    .from("tenants")
+    .update({ canal: CANAL_POR_KIND[kind] })
+    .eq("id", tenantId);
+  if (!error) return;
+
+  // 42703 = undefined_column. Es esperable en instalaciones que aún no han
+  // corrido la migración del canal; el resto del bot funciona igual, solo que
+  // su dashboard mostrará el panel por defecto hasta que se corra.
+  const codigo = (error as { code?: string }).code;
+  if (codigo === "42703" || /column .*canal.* does not exist/i.test(error.message ?? "")) {
+    console.warn(
+      "[tenants] La columna `tenants.canal` no existe todavía: corre la migración para que el dashboard distinga el tipo de bot.",
+    );
+    return;
+  }
+  console.error(`[tenants] No se pudo sincronizar el canal de ${tenantId}:`, error);
+}
+
 let tenantsCache: Map<string, Tenant> | null = null;
 
 // Overrides de corta duración para que un apagado desde el Owner Console sea
@@ -251,6 +282,12 @@ export async function cargarTenants(): Promise<Map<string, Tenant>> {
       // Mantener el nombre visible en Supabase sincronizado con el archivo.
       await supabase.from("tenants").update({ nombre: cfg.nombre }).eq("id", id);
     }
+
+    // El dashboard del cliente decide qué panel mostrar leyendo `tenants.canal`
+    // desde Supabase (no pasa por este backend), así que el tipo de bot tiene
+    // que llegar hasta ahí. Sin esto, un bot asistente se ve como uno de
+    // ventas: el dashboard cae a "mensajes" por defecto.
+    await sincronizarCanal(id!, cfg.kind);
 
     registro.set(cfg.slug, { id: id!, config: cfg });
   }

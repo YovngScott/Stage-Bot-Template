@@ -25,6 +25,13 @@ create table if not exists tenants (
   creado_en  timestamptz not null default now()
 );
 
+-- Tipo de bot, en el vocabulario que usa el dashboard del cliente ("canal").
+-- Lo escribe el backend al arrancar, a partir del `kind` del tenant.json, y es
+-- lo que hace que un bot asistente muestre su panel de correo en vez del panel
+-- de ventas. Los tenants viejos se quedan en 'mensajes', que es lo correcto.
+alter table tenants add column if not exists canal text not null default 'mensajes'
+  check (canal in ('mensajes','llamadas','asistente'));
+
 -- Súper-admins de Stage AI Labs: ven y gestionan TODOS los tenants.
 create table if not exists super_admins (
   user_id   uuid primary key references auth.users (id) on delete cascade,

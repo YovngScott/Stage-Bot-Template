@@ -6,6 +6,7 @@ import {
   NOMBRE_ETIQUETA,
   type CorreoEntrante,
   type EmailProvider,
+  type EstadoRespuesta,
   type EtiquetaAsistente,
   type PerfilCorreo,
   type RespuestaCorreo,
@@ -148,6 +149,21 @@ class ProveedorGmail implements EmailProvider {
     } catch (err) {
       // Etiquetar es cosmético: si falla, el triaje debe continuar igual.
       console.warn(`[asistente:gmail] No se pudo etiquetar ${correoId}:`, err);
+    }
+  }
+
+  async estadoRespuesta(borradorId: string): Promise<EstadoRespuesta> {
+    try {
+      await conReintentos(() => this.gmail.users.drafts.get({ userId: "me", id: borradorId }), "gmail");
+      return "pendiente";
+    } catch (err: any) {
+      const codigo = err?.code ?? err?.response?.status;
+      // 404: el borrador desapareció. Gmail lo borra tanto al enviarlo como al
+      // descartarlo, y no deja rastro que permita distinguirlo — así que se
+      // reporta resuelto sin afirmar cuál de las dos cosas fue.
+      if (codigo === 404) return "resuelta";
+      console.warn(`[asistente:gmail] No se pudo consultar el borrador ${borradorId}:`, err);
+      return "desconocido";
     }
   }
 

@@ -8,6 +8,7 @@ import {
   NOMBRE_ETIQUETA,
   type CorreoEntrante,
   type EmailProvider,
+  type EstadoRespuesta,
   type EtiquetaAsistente,
   type PerfilCorreo,
   type RespuestaCorreo,
@@ -219,6 +220,24 @@ class ProveedorImap implements EmailProvider {
       return info.messageId ?? null;
     } finally {
       transporte.close();
+    }
+  }
+
+  async estadoRespuesta(borradorId: string): Promise<EstadoRespuesta> {
+    try {
+      const cliente = await this.conectar();
+      const cerrojo = await cliente.getMailboxLock(this.cred.carpetaBorradores);
+      try {
+        // Si el UID ya no está en la carpeta de borradores, el titular lo
+        // envió o lo borró. IMAP no deja rastro para distinguirlo.
+        const mensaje = await cliente.fetchOne(borradorId, { uid: true }, { uid: true });
+        return mensaje ? "pendiente" : "resuelta";
+      } finally {
+        cerrojo.release();
+      }
+    } catch (err) {
+      console.warn(`[asistente:imap] No se pudo consultar el borrador ${borradorId}:`, err);
+      return "desconocido";
     }
   }
 

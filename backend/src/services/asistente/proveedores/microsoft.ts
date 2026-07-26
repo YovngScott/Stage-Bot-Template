@@ -7,6 +7,7 @@ import {
   NOMBRE_ETIQUETA,
   type CorreoEntrante,
   type EmailProvider,
+  type EstadoRespuesta,
   type EtiquetaAsistente,
   type PerfilCorreo,
   type RespuestaCorreo,
@@ -293,6 +294,20 @@ class ProveedorMicrosoft implements EmailProvider {
     });
     // sendMail responde 202 sin cuerpo: no hay id que devolver.
     return null;
+  }
+
+  async estadoRespuesta(borradorId: string): Promise<EstadoRespuesta> {
+    try {
+      // Graph conserva el id al enviar: el mensaje pasa a Elementos enviados y
+      // isDraft cambia a false. Eso permite distinguir enviado de descartado,
+      // cosa que en Gmail no se puede.
+      const mensaje = await this.llamar(`/me/messages/${borradorId}?$select=isDraft`);
+      return mensaje?.isDraft === false ? "enviada" : "pendiente";
+    } catch (err: any) {
+      if (err?.status === 404) return "descartada";
+      console.warn(`[asistente:microsoft] No se pudo consultar el borrador ${borradorId}:`, err);
+      return "desconocido";
+    }
   }
 
   async etiquetar(correoId: string, etiqueta: EtiquetaAsistente): Promise<void> {

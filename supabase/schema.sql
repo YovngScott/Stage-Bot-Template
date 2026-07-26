@@ -261,6 +261,17 @@ create table if not exists asistente_correos (
   unique (tenant_id, gmail_message_id)
 );
 
+-- El titular resuelve los borradores en SU cliente de correo, no aquí: envía
+-- uno, descarta otro, y el dashboard nunca se entera. El triaje reconcilia
+-- contra el buzón y marca estas columnas, que son las que sacan un correo de
+-- la lista de pendientes.
+alter table asistente_correos add column if not exists resuelto_en timestamptz;
+alter table asistente_correos add column if not exists resolucion text;
+
+create index if not exists idx_asistente_correos_pendientes
+  on asistente_correos (tenant_id, procesado_en desc)
+  where resuelto_en is null;
+
 -- El envío automático agregó el estado 'enviado'. Para las bases que ya
 -- tenían la tabla creada, `create table if not exists` no actualiza el CHECK:
 -- hay que reemplazar la restricción explícitamente. Idempotente.

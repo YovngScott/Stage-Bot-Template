@@ -24,6 +24,8 @@ export interface ResumenCorrida {
   clasificados: number;
   /** Rutinarios respondidos y enviados sin intervención. */
   enviados: number;
+  /** Borradores que el titular ya resolvió en su buzón y salen de pendientes. */
+  reconciliados: number;
   borradoresCreados: number;
   escaladosRevision: number;
   error: string | null;
@@ -41,6 +43,47 @@ async function filtrarYaProcesados(tenantId: string, ids: string[]): Promise<str
 
   const vistos = new Set((data ?? []).map((f: any) => f.gmail_message_id));
   return ids.filter((id) => !vistos.has(id));
+}
+
+/**
+ * Pregunta al buzón qué pasó con los borradores que dejamos esperando y cierra
+ * los que el titular ya resolvió por su cuenta.
+ *
+ * Sin esto el panel miente: el titular envía un borrador desde Outlook y aquí
+ * sigue contando como pendiente, porque él nunca toca el dashboard para
+ * resolverlo — actúa en su cliente de correo, que es justo la gracia.
+ */
+async function reconciliarPendientes(tenant: Tenant, proveedor: EmailProvider): Promise<number> {
+  const { data, error } = await supabase
+    .from("asistente_correos")
+    .select("id, borrador_id")
+    .eq("tenant_id", tenant.id)
+    .is("resuelto_en", null)
+    .not("borrador_id", "is", null)
+    // Acotado: es una llamada de red por borrador, y los viejos ya se
+    // revisaron en corridas anteriores.
+    .order("procesado_en", { ascending: false })
+    .limit(40);
+  if (error || !data?.length) return 0;
+
+  let cerrados = 0;
+  for (const fila of data) {
+    const estado = await proveedor.estadoRespuesta(fila.borrador_id as string);
+    // "pendiente" sigue esperando; "desconocido" es un fallo de consulta y no
+    // debe cerrar nada — mejor mostrarlo de más que ocultarlo por error.
+    if (estado === "pendiente" || estado === "desconocido") continue;
+
+    await supabase
+      .from("asistente_correos")
+      .update({ resuelto_en: new Date().toISOString(), resolucion: estado })
+      .eq("id", fila.id);
+    cerrados += 1;
+  }
+
+  if (cerrados > 0) {
+    console.log(`[asistente:${tenant.config.slug}] ${cerrados} borrador(es) que ya resolviste salieron de pendientes.`);
+  }
+  return cerrados;
 }
 
 /** Marca de tiempo del último correo procesado, para no releer la bandeja entera. */
@@ -116,7 +159,7 @@ export async function responderComandoWhatsApp(tenant: Tenant, texto: string): P
     desde.setHours(0, 0, 0, 0);
     const { data, error } = await supabase
       .from("asistente_correos")
-      .select("resultado")
+      .select("resultado, resuelto_en")
       .eq("tenant_id", tenant.id)
       .gte("procesado_en", desde.toISOString());
     if (error) throw error;
@@ -124,7 +167,10 @@ export async function responderComandoWhatsApp(tenant: Tenant, texto: string): P
     const filas = data ?? [];
     const enviados = filas.filter((f: any) => f.resultado === "enviado").length;
     const borradores = filas.filter((f: any) => f.resultado === "auto").length;
-    const pendientes = filas.filter((f: any) => f.resultado === "revision" || f.resultado === "error").length;
+    // Lo que el titular ya resolvió en su buzón deja de contar como pendiente.
+    const pendientes = filas.filter(
+      (f: any) => (f.resultado === "revision" || f.resultado === "error") && !f.resuelto_en,
+    ).length;
 
     return [
       `📊 *${tenant.config.nombreBot}* — resumen de hoy`,
@@ -170,6 +216,7 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
     descartadosHeuristica: 0,
     clasificados: 0,
     enviados: 0,
+    reconciliados: 0,
     borradoresCreados: 0,
     escaladosRevision: 0,
     error: null,
@@ -196,6 +243,10 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
     if (!proveedor) {
       throw new Error("El correo no está conectado. El ejecutivo debe autorizar su cuenta desde el dashboard.");
     }
+
+    // Primero se pone al día con lo que el titular ya resolvió; así el panel
+    // refleja la realidad aunque no haya llegado ningún correo nuevo.
+    resumen.reconciliados = await reconciliarPendientes(tenant, proveedor);
 
     const desde = await obtenerUltimaMarca(tenant.id);
     const candidatos = await proveedor.listarNuevos(desde, asistente.maxPorCorrida);

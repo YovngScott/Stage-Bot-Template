@@ -79,7 +79,7 @@ function programarTriajeAsistentes(): void {
         for (const tenant of tenants) {
           try {
             const resumen = await ejecutarTriaje(tenant);
-            if (resumen.revisados > 0) {
+            if (resumen.revisados > 0 || resumen.reconciliados > 0) {
               console.log(
                 `[scheduler:${tenant.config.slug}] Triaje — ${resumen.revisados} revisados, ` +
                   `${resumen.descartadosHeuristica} descartados, ${resumen.enviados} enviados, ` +

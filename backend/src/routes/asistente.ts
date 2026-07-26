@@ -200,7 +200,7 @@ asistenteRouter.get("/metricas", requiereAdmin, async (req: Request, res: Respon
   try {
     const { data, error } = await supabase
       .from("asistente_correos")
-      .select("resultado, filtrado_heuristica, confianza")
+      .select("resultado, filtrado_heuristica, confianza, resuelto_en")
       .eq("tenant_id", req.tenant!.id)
       .gte("procesado_en", desde.toISOString());
     if (error) throw error;
@@ -216,7 +216,10 @@ asistenteRouter.get("/metricas", requiereAdmin, async (req: Request, res: Respon
       descartadosAutomaticos: filas.filter((f: any) => f.filtrado_heuristica).length,
       enviadosSolos: filas.filter((f: any) => f.resultado === "enviado").length,
       borradoresCreados: filas.filter((f: any) => f.resultado === "auto").length,
-      pendientesRevision: filas.filter((f: any) => f.resultado === "revision" || f.resultado === "error").length,
+      pendientesRevision: filas.filter(
+        (f: any) => (f.resultado === "revision" || f.resultado === "error") && !f.resuelto_en,
+      ).length,
+      resueltosPorTitular: filas.filter((f: any) => Boolean(f.resuelto_en)).length,
       confianzaPromedio: confianzaPromedio === null ? null : Number(confianzaPromedio.toFixed(3)),
     });
   } catch (err: any) {
@@ -234,12 +237,20 @@ asistenteRouter.get("/correos", requiereAdmin, async (req: Request, res: Respons
   try {
     let consulta = supabase
       .from("asistente_correos")
-      .select("id, remitente, asunto, recibido_en, categoria, prioridad, confianza, justificacion, resultado, motivo_descarte, borrador_id, alerta_enviada")
+      .select(
+        "id, remitente, asunto, recibido_en, categoria, prioridad, confianza, justificacion, resultado, motivo_descarte, borrador_id, alerta_enviada, resuelto_en, resolucion",
+      )
       .eq("tenant_id", req.tenant!.id)
       .order("procesado_en", { ascending: false })
       .limit(limite);
-    if (["auto", "revision", "omitido", "error"].includes(resultado)) {
+    if (["enviado", "auto", "revision", "omitido", "error"].includes(resultado)) {
       consulta = consulta.eq("resultado", resultado);
+    }
+    // La lista de "necesitan tu criterio" solo debe traer lo que sigue
+    // esperando: si el titular ya envió o descartó el borrador en su buzón,
+    // deja de ser pendiente aunque el resultado del triaje siga siendo el mismo.
+    if (String(req.query.pendientes ?? "") === "1") {
+      consulta = consulta.is("resuelto_en", null);
     }
 
     const { data, error } = await consulta;

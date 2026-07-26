@@ -57,6 +57,26 @@ export interface PerfilCorreo {
 }
 
 /**
+ * Qué pasó con un borrador que el asistente dejó esperando al titular.
+ *
+ * El titular actúa en SU cliente de correo, no en el dashboard, así que el
+ * panel no se entera de nada: hay que ir a preguntarle al buzón. Sin esto, un
+ * borrador que ya se envió (o se borró) sigue apareciendo como pendiente para
+ * siempre.
+ */
+export type EstadoRespuesta =
+  /** Sigue en borradores, esperando al titular. */
+  | "pendiente"
+  /** El titular lo envió. */
+  | "enviada"
+  /** El titular lo descartó. */
+  | "descartada"
+  /** Ya no está en borradores, pero el proveedor no permite saber si se envió o se borró. */
+  | "resuelta"
+  /** No se pudo consultar (red, permisos): se deja como estaba, sin inventar. */
+  | "desconocido";
+
+/**
  * Marca semántica del resultado del triaje. Cada adaptador la traduce a lo que
  * su proveedor entienda: etiquetas en Gmail, categorías en Microsoft, keywords
  * IMAP. Es informativa: si el proveedor no puede marcar, el triaje sigue igual.
@@ -94,6 +114,13 @@ export interface EmailProvider {
 
   /** Marca el correo con el resultado del triaje. Best-effort: no debe lanzar. */
   etiquetar(correoId: string, etiqueta: EtiquetaAsistente): Promise<void>;
+
+  /**
+   * ¿Qué pasó con un borrador que dejamos esperando? Permite que el dashboard
+   * deje de mostrar como pendiente lo que el titular ya resolvió en su buzón.
+   * Best-effort: ante cualquier fallo devuelve "desconocido", nunca lanza.
+   */
+  estadoRespuesta(borradorId: string): Promise<EstadoRespuesta>;
 
   /** Libera conexiones abiertas (IMAP). Los proveedores REST no hacen nada. */
   cerrar?(): Promise<void>;

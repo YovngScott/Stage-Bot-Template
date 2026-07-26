@@ -7,8 +7,24 @@
  * Es puro análisis de encabezados — sin red, sin tokens, sin coste.
  */
 
-/** Direcciones que jamás esperan respuesta humana. */
-const REMITENTES_AUTOMATICOS = /^(no-?reply|bounce|notifications?|newsletters?|mailer-daemon|postmaster|do-?not-?reply)@/i;
+/**
+ * Marcadores de buzón automático dentro de la parte local de la dirección.
+ *
+ * Van delimitados por separador (o extremo) en vez de anclados al inicio: en
+ * la práctica casi ningún servicio usa `noreply@` a secas, sino
+ * `azure-noreply@`, `account-security-noreply@`, `billing.notifications@`.
+ * Anclarlo al inicio dejaba pasar justamente los más comunes.
+ */
+const MARCADORES_AUTOMATICOS =
+  /(^|[.\-_+])(no-?reply|do-?not-?reply|donotreply|bounces?|mailer-daemon|postmaster|notifications?|newsletters?|automated|automailer)([.\-_+]|$)/i;
+
+/** ¿La dirección corresponde a un buzón que jamás espera respuesta humana? */
+function esRemitenteAutomatico(direccion: string): boolean {
+  // Solo la parte local: un dominio como "notifications.empresa.com" puede
+  // alojar buzones perfectamente humanos.
+  const local = direccion.split("@")[0] ?? "";
+  return MARCADORES_AUTOMATICOS.test(local);
+}
 
 /** Encabezados que delatan correo masivo o generado por una máquina. */
 const PRECEDENCE_MASIVA = new Set(["bulk", "junk", "list"]);
@@ -43,7 +59,7 @@ export function extraerDireccion(from: string): string {
 export function evaluarHeuristica(encabezados: EncabezadosCorreo): ResultadoHeuristica {
   const direccion = extraerDireccion(encabezados.from ?? "");
 
-  if (REMITENTES_AUTOMATICOS.test(direccion)) {
+  if (esRemitenteAutomatico(direccion)) {
     return { procesar: false, motivo: "remitente_automatico" };
   }
   // Un List-Unsubscribe es la señal más fiable de boletín/marketing masivo.

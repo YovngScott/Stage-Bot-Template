@@ -4,6 +4,7 @@ import { enviarMensajeTexto } from "../baileys.js";
 import { clasificarCorreo, type Clasificacion } from "./clasificador.js";
 import { obtenerProveedorCorreo, type CorreoEntrante, type EmailProvider } from "./proveedores/index.js";
 import { describirMotivo, evaluarHeuristica, extraerDireccion } from "./heuristica.js";
+import { validarParaEnvio } from "./validacion.js";
 
 /**
  * Orquestador del pipeline de triaje:
@@ -59,6 +60,8 @@ function alertaWhatsApp(
   correo: CorreoEntrante,
   clasificacion: Clasificacion | null,
   hayBorrador = false,
+  /** Presente si lo que frenó el envío fue el TEXTO, no el asunto del correo. */
+  motivoTexto: string | null = null,
 ): string {
   const remitente = extraerDireccion(correo.encabezados.from);
   if (!clasificacion) {
@@ -73,10 +76,13 @@ function alertaWhatsApp(
   }
 
   // El motivo del escalamiento cambia el mensaje: no es lo mismo "esto te toca
-  // a ti" que "no te entendí". El titular decide distinto en cada caso.
-  const motivo = clasificacion.requiereDecisionPersonal
-    ? "Esto debería salir de tu parte, así que no lo envié."
-    : `No estoy seguro de haber entendido bien (confianza ${Math.round(clasificacion.confianza * 100)}%), así que no lo envié.`;
+  // a ti" que "no te entendí" o "la redacté mal". El titular decide distinto
+  // en cada caso.
+  const motivo = motivoTexto
+    ? `Redacté la respuesta pero no la envié: ${motivoTexto}`
+    : clasificacion.requiereDecisionPersonal
+      ? "Esto debería salir de tu parte, así que no lo envié."
+      : `No estoy seguro de haber entendido bien (confianza ${Math.round(clasificacion.confianza * 100)}%), así que no lo envié.`;
 
   const cierre = hayBorrador
     ? "Te dejé la respuesta escrita como borrador: revísala, ajústala si hace falta y dale a Enviar."
@@ -251,8 +257,20 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
       // En ambos casos NO se envía nada: se deja el borrador listo y se avisa,
       // para que revisar sea un clic y no volver a escribir.
       const noEntendio = clasificacion.confianza < asistente.umbralConfianza;
-      const debeDecidirElTitular = clasificacion.requiereDecisionPersonal || noEntendio;
       const respuesta = clasificacion.borrador;
+
+      // Última barrera antes de mandar algo a nombre del titular: el prompt
+      // prohíbe plantillas a medio llenar, pero un prompt no es una garantía.
+      // Si el texto trae huecos, se trata como un correo que debe revisar él.
+      const revisionTexto = respuesta ? validarParaEnvio(respuesta.cuerpo) : null;
+      const textoInseguro = revisionTexto !== null && !revisionTexto.seguro;
+      if (textoInseguro) {
+        console.warn(
+          `[asistente:${tenant.config.slug}] Respuesta retenida para ${correo.id}: ${revisionTexto!.motivo}`,
+        );
+      }
+
+      const debeDecidirElTitular = clasificacion.requiereDecisionPersonal || noEntendio || textoInseguro;
 
       if (!debeDecidirElTitular && respuesta && asistente.enviarAutomatico) {
         const destino = {
@@ -327,7 +345,10 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
         : null;
       if (borradorId) resumen.borradoresCreados += 1;
       resumen.escaladosRevision += 1;
-      const avisado = await avisarEjecutivo(tenant, alertaWhatsApp(tenant, correo, clasificacion, Boolean(borradorId)));
+      const avisado = await avisarEjecutivo(
+        tenant,
+        alertaWhatsApp(tenant, correo, clasificacion, Boolean(borradorId), revisionTexto?.motivo ?? null),
+      );
       await supabase
         .from("asistente_correos")
         .insert({ ...fila, resultado: "revision", borrador_id: borradorId, alerta_enviada: avisado });

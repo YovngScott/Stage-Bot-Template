@@ -26,6 +26,6 @@
     "horaReporte": "18:00",
     "actuaComoTitular": true,
     "nombreTitular": "Joseph Peralta",
-    "enviarAutomatico": true
+    "enviarAutomatico": false
   }
 }

@@ -149,10 +149,13 @@ async function accessTokenDe(tenantId: string): Promise<{ token: string; email: 
 
   try {
     const { refreshToken } = JSON.parse(descifrar(data.credenciales)) as { refreshToken: string };
+    // Sin `scope`: el refresh renueva EXACTAMENTE los permisos que el usuario
+    // concedió. Mandar la lista actual rompe todas las cuentas conectadas
+    // antes de agregar un permiso nuevo — Microsoft responde AADSTS70000 y
+    // deja de refrescar, aunque los permisos viejos siguieran siendo válidos.
     const tokens = await pedirToken({
       grant_type: "refresh_token",
       refresh_token: refreshToken,
-      scope: SCOPES_MICROSOFT.join(" "),
     });
 
     // Microsoft rota el refresh_token: si no guardamos el nuevo, la conexión

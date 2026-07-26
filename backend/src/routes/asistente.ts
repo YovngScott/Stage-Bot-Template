@@ -74,8 +74,11 @@ asistenteRouter.get("/estado", requiereAdmin, async (req: Request, res: Response
     proveedor: asistente.proveedor,
     proveedorNombre: NOMBRE_PROVEEDOR[asistente.proveedor],
     // Avisamos si autorizaron una cuenta distinta a la que se configuró: es un
-    // error silencioso muy fácil de cometer y deja el triaje leyendo otra bandeja.
-    cuentaCoincide: perfil ? perfil.email.toLowerCase() === asistente.correo : null,
+    // error silencioso muy fácil de cometer y deja el triaje leyendo otra
+    // bandeja. `null` = no se pudo determinar (p. ej. una cuenta autorizada
+    // antes de que pidiéramos User.Read); en ese caso no se afirma nada, para
+    // no acusar de un desajuste que quizá no existe.
+    cuentaCoincide: perfil?.email ? perfil.email.toLowerCase() === asistente.correo : null,
     correoConfigurado: asistente.correo,
     correoConectado: perfil?.email ?? null,
     umbralConfianza: asistente.umbralConfianza,

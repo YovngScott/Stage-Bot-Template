@@ -25,14 +25,38 @@ import {
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
-/** Permisos mínimos: leer el buzón y escribir/enviar en nombre del usuario. */
+/**
+ * Permisos mínimos: leer el buzón, escribir/enviar en nombre del usuario, y
+ * User.Read para poder confirmar QUÉ cuenta se autorizó.
+ *
+ * User.Read no es opcional aunque suene a extra: sin él, `GET /me` devuelve
+ * 403 y el dashboard reporta "Sin conectar" aunque el triaje funcione — que
+ * es exactamente lo que pasaba antes de agregarlo.
+ */
 export const SCOPES_MICROSOFT = [
   "offline_access",
   "openid",
   "email",
+  "https://graph.microsoft.com/User.Read",
   "https://graph.microsoft.com/Mail.ReadWrite",
   "https://graph.microsoft.com/Mail.Send",
 ];
+
+/**
+ * Extrae el correo del `id_token` (JWT) sin verificar la firma: viene por
+ * canal seguro directo de Microsoft y solo se usa para mostrarlo. Sirve de
+ * respaldo cuando `/me` no está disponible.
+ */
+function emailDelIdToken(idToken: string | undefined): string | null {
+  if (!idToken) return null;
+  try {
+    const carga = JSON.parse(Buffer.from(idToken.split(".")[1], "base64url").toString("utf8"));
+    const email = carga.email ?? carga.preferred_username ?? carga.upn;
+    return typeof email === "string" && email.includes("@") ? email : null;
+  } catch {
+    return null;
+  }
+}
 
 function urlToken(): string {
   return `https://login.microsoftonline.com/${config.microsoft.tenantId}/oauth2/v2.0/token`;
@@ -60,6 +84,7 @@ export function generarUrlAutorizacionMicrosoft(state: string, redirectUri: stri
 interface RespuestaToken {
   access_token: string;
   refresh_token?: string;
+  id_token?: string;
   expires_in: number;
 }
 
@@ -86,17 +111,20 @@ export async function manejarCallbackMicrosoft(tenantId: string, code: string, r
     throw new Error("Microsoft no devolvió un refresh_token. Vuelve a intentar la autorización.");
   }
 
-  // El correo se pide de una vez para poder avisar en el dashboard si se
-  // autorizó una cuenta distinta a la configurada.
-  let email: string | null = null;
-  try {
-    const perfil = await fetch(`${GRAPH}/me`, { headers: { authorization: `Bearer ${tokens.access_token}` } });
-    if (perfil.ok) {
-      const datos: any = await perfil.json();
-      email = datos.mail ?? datos.userPrincipalName ?? null;
+  // El correo se guarda de una vez para poder avisar en el dashboard si se
+  // autorizó una cuenta distinta a la configurada. Se toma del id_token, que
+  // siempre viene; `/me` queda como refuerzo por si el id_token no lo trae.
+  let email: string | null = emailDelIdToken(tokens.id_token);
+  if (!email) {
+    try {
+      const perfil = await fetch(`${GRAPH}/me`, { headers: { authorization: `Bearer ${tokens.access_token}` } });
+      if (perfil.ok) {
+        const datos: any = await perfil.json();
+        email = datos.mail ?? datos.userPrincipalName ?? null;
+      }
+    } catch {
+      // Informativo: no bloquea la conexión.
     }
-  } catch {
-    // Informativo: no bloquea la conexión.
   }
 
   const { error } = await supabase.from("asistente_cuentas").upsert({
@@ -110,10 +138,10 @@ export async function manejarCallbackMicrosoft(tenantId: string, code: string, r
 }
 
 /** Canjea el refresh_token guardado por un access_token fresco. */
-async function accessTokenDe(tenantId: string): Promise<string | null> {
+async function accessTokenDe(tenantId: string): Promise<{ token: string; email: string | null } | null> {
   const { data, error } = await supabase
     .from("asistente_cuentas")
-    .select("credenciales")
+    .select("credenciales, cuenta_email")
     .eq("tenant_id", tenantId)
     .eq("proveedor", "microsoft")
     .maybeSingle();
@@ -135,7 +163,7 @@ async function accessTokenDe(tenantId: string): Promise<string | null> {
         .update({ credenciales: cifrar(JSON.stringify({ refreshToken: tokens.refresh_token })) })
         .eq("tenant_id", tenantId);
     }
-    return tokens.access_token;
+    return { token: tokens.access_token, email: data.cuenta_email ?? emailDelIdToken(tokens.id_token) };
   } catch (err) {
     console.error(`[asistente:microsoft] No se pudo refrescar el token de ${tenantId}:`, err);
     return null;
@@ -145,7 +173,11 @@ async function accessTokenDe(tenantId: string): Promise<string | null> {
 class ProveedorMicrosoft implements EmailProvider {
   readonly proveedor = "microsoft" as const;
 
-  constructor(private readonly accessToken: string) {}
+  constructor(
+    private readonly accessToken: string,
+    /** Correo guardado al autorizar; respaldo si `/me` no está disponible. */
+    private readonly emailGuardado: string | null,
+  ) {}
 
   private async llamar(ruta: string, init: RequestInit = {}): Promise<any> {
     return conReintentos(async () => {
@@ -170,7 +202,18 @@ class ProveedorMicrosoft implements EmailProvider {
   async perfil(): Promise<PerfilCorreo | null> {
     try {
       const datos = await this.llamar("/me?$select=mail,userPrincipalName");
-      return { email: datos?.mail ?? datos?.userPrincipalName ?? "" };
+      const email = datos?.mail ?? datos?.userPrincipalName ?? this.emailGuardado;
+      if (email) return { email };
+    } catch (err) {
+      // Las cuentas autorizadas ANTES de que pidiéramos User.Read siguen
+      // sirviendo para triar, pero no pueden leer /me. No las reportamos como
+      // desconectadas: lo que importa es si el buzón responde.
+      console.warn("[asistente:microsoft] /me no disponible; verificando con el buzón:", err);
+    }
+
+    try {
+      await this.llamar("/me/mailFolders/inbox?$select=id");
+      return { email: this.emailGuardado ?? "" };
     } catch {
       return null;
     }
@@ -265,6 +308,6 @@ class ProveedorMicrosoft implements EmailProvider {
 /** Construye el adaptador de Microsoft, o null si el tenant no lo tiene conectado. */
 export async function crearProveedorMicrosoft(tenantId: string): Promise<EmailProvider | null> {
   if (!config.microsoft.clientId || !config.microsoft.clientSecret) return null;
-  const token = await accessTokenDe(tenantId);
-  return token ? new ProveedorMicrosoft(token) : null;
+  const credenciales = await accessTokenDe(tenantId);
+  return credenciales ? new ProveedorMicrosoft(credenciales.token, credenciales.email) : null;
 }

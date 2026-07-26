@@ -426,6 +426,14 @@ export async function enviarMensajeTexto(tenantId: string, telefono: string, tex
   if (!(await tenantBotActivo(tenantId))) return;
   const sesion = sesiones.get(tenantId);
   if (!sesion?.sock) throw new Error("WhatsApp no está conectado todavía para este cliente.");
+  // El socket existe desde que arranca el intento de conexión, pero mientras
+  // nadie escanee el QR no hay sesión: enviar ahí revienta dentro de Baileys
+  // con un TypeError ilegible. Mejor decir qué falta de verdad.
+  if (!sesion.estado.conectado) {
+    throw new Error(
+      "El WhatsApp de este cliente no está vinculado: escanea el QR desde el dashboard para recibir alertas.",
+    );
+  }
   const jid = telefono.replace(/[^\d]/g, "") + "@s.whatsapp.net";
   await sesion.sock.sendMessage(jid, { text: texto });
 }

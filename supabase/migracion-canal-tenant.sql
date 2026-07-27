@@ -25,7 +25,13 @@ begin
 end $$;
 
 
+-- Interruptor del envío automático del asistente, controlado desde el Owner
+-- Console. Vive en la base y no en el tenant.json para que el cambio surta
+-- efecto de inmediato, sin redesplegar. NULL = manda lo del tenant.json.
+alter table tenants add column if not exists asistente_envio_automatico boolean;
+
+
 -- ----------------------------------------------------------------------------
 -- VERIFICACIÓN — muestra en qué canal quedó cada cliente
 -- ----------------------------------------------------------------------------
-select slug, nombre, canal from tenants order by slug;
+select slug, nombre, canal, asistente_envio_automatico from tenants order by slug;

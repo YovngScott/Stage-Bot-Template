@@ -3,6 +3,7 @@ import type { Tenant } from "../../lib/tenants.js";
 import { enviarMensajeTexto } from "../baileys.js";
 import { clasificarCorreo, type Clasificacion } from "./clasificador.js";
 import { obtenerProveedorCorreo, type CorreoEntrante, type EmailProvider } from "./proveedores/index.js";
+import { envioAutomaticoActivo } from "../../lib/tenants.js";
 import { describirMotivo, evaluarHeuristica, extraerDireccion } from "./heuristica.js";
 import { validarParaEnvio } from "./validacion.js";
 
@@ -251,6 +252,10 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
     // refleja la realidad aunque no haya llegado ningún correo nuevo.
     resumen.reconciliados = await reconciliarPendientes(tenant, proveedor);
 
+    // Se lee en cada corrida (no de la config del bot) para que el interruptor
+    // del Owner Console surta efecto sin redesplegar.
+    const enviarAutomatico = await envioAutomaticoActivo(tenant);
+
     const desde = await obtenerUltimaMarca(tenant.id);
     const candidatos = await proveedor.listarNuevos(desde, asistente.maxPorCorrida);
     const pendientes = await filtrarYaProcesados(tenant.id, candidatos);
@@ -326,7 +331,7 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
 
       const debeDecidirElTitular = clasificacion.requiereDecisionPersonal || noEntendio || textoInseguro;
 
-      if (!debeDecidirElTitular && respuesta && asistente.enviarAutomatico) {
+      if (!debeDecidirElTitular && respuesta && enviarAutomatico) {
         const destino = {
           hiloId: correo.hiloId,
           para: respuesta.destinatario,

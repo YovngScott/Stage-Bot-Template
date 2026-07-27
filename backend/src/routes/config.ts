@@ -1,7 +1,12 @@
 import { Router, type Request, type Response } from "express";
 import { config } from "../lib/config.js";
 import { requiereAdmin } from "../lib/adminAuth.js";
-import { tenantBotActivo, establecerBotActivo } from "../lib/tenants.js";
+import {
+  tenantBotActivo,
+  establecerBotActivo,
+  envioAutomaticoActivo,
+  establecerEnvioAutomatico,
+} from "../lib/tenants.js";
 import { desconectarWhatsApp, iniciarWhatsApp } from "../services/baileys.js";
 
 export const configRouter = Router({ mergeParams: true });
@@ -61,6 +66,45 @@ configRouter.post("/bot-activo", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("[config] Error actualizando bot_activo:", err);
     res.status(500).json({ error: "No se pudo actualizar el estado del bot." });
+  }
+});
+
+/**
+ * GET /api/:slug/config/envio-automatico — ¿el asistente envía por su cuenta?
+ * Lo consulta el Owner Console para pintar el interruptor en su estado real.
+ */
+configRouter.get("/envio-automatico", async (req: Request, res: Response) => {
+  if (!tienePlataforma(req)) {
+    return res.status(401).json({ error: "No autorizado." });
+  }
+  const tenant = req.tenant!;
+  if (tenant.config.kind !== "assistant") {
+    return res.status(400).json({ error: "Este bot no es de tipo asistente virtual." });
+  }
+  res.json({ activo: await envioAutomaticoActivo(tenant) });
+});
+
+/**
+ * POST /api/:slug/config/envio-automatico — enciende/apaga el envío automático.
+ * Body: { activo: boolean }. Surte efecto en la siguiente corrida del triaje,
+ * sin redesplegar: el triaje lee este valor de la base en cada pasada.
+ */
+configRouter.post("/envio-automatico", async (req: Request, res: Response) => {
+  if (!tienePlataforma(req)) {
+    return res.status(401).json({ error: "No autorizado." });
+  }
+  const tenant = req.tenant!;
+  if (tenant.config.kind !== "assistant") {
+    return res.status(400).json({ error: "Este bot no es de tipo asistente virtual." });
+  }
+
+  const activo = Boolean(req.body?.activo);
+  try {
+    await establecerEnvioAutomatico(tenant.id, activo);
+    res.json({ ok: true, activo });
+  } catch (err) {
+    console.error("[config] Error actualizando el envío automático:", err);
+    res.status(500).json({ error: "No se pudo actualizar el envío automático." });
   }
 });
 

@@ -32,6 +32,12 @@ create table if not exists tenants (
 alter table tenants add column if not exists canal text not null default 'mensajes'
   check (canal in ('mensajes','llamadas','asistente'));
 
+-- Interruptor del envío automático del asistente, controlado desde el Owner
+-- Console. Vive aquí y no en el tenant.json porque así el cambio surte efecto
+-- de inmediato: editar el JSON obligaría a un redespliegue de ~2 min por cada
+-- clic. NULL = nunca se tocó, manda lo que traiga el tenant.json.
+alter table tenants add column if not exists asistente_envio_automatico boolean;
+
 -- Súper-admins de Stage AI Labs: ven y gestionan TODOS los tenants.
 create table if not exists super_admins (
   user_id   uuid primary key references auth.users (id) on delete cascade,

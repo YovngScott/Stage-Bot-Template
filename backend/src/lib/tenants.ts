@@ -332,6 +332,40 @@ export async function tenantBotActivo(tenantId: string): Promise<boolean> {
   return activo;
 }
 
+/**
+ * ¿Debe el asistente ENVIAR lo rutinario, o dejar todo en borradores?
+ *
+ * El Owner Console lo cambia con un clic, así que el valor manda vive en la
+ * base y no en el tenant.json: editar el JSON obligaría a redesplegar por cada
+ * cambio. Si nunca se tocó (NULL), gana lo que traiga la config del bot.
+ */
+export async function envioAutomaticoActivo(tenant: Tenant): Promise<boolean> {
+  const porDefecto = tenant.config.asistente?.enviarAutomatico ?? false;
+
+  const { data, error } = await supabase
+    .from("tenants")
+    .select("asistente_envio_automatico")
+    .eq("id", tenant.id)
+    .maybeSingle();
+
+  if (error) {
+    // Ante un fallo de lectura se elige lo conservador: no enviar correo a
+    // nombre del cliente por un problema de red.
+    console.error(`[tenants] No se pudo leer el envío automático de ${tenant.config.slug}:`, error);
+    return false;
+  }
+  return data?.asistente_envio_automatico ?? porDefecto;
+}
+
+/** Cambia el interruptor de envío automático desde el Owner Console. */
+export async function establecerEnvioAutomatico(tenantId: string, activo: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("tenants")
+    .update({ asistente_envio_automatico: activo })
+    .eq("id", tenantId);
+  if (error) throw error;
+}
+
 /** Enciende/apaga el bot de un tenant (llamado desde Stage AI Labs vía routes/config.ts). */
 export async function establecerBotActivo(tenantId: string, activo: boolean): Promise<void> {
   const { error } = await supabase.from("tenants").update({ bot_activo: activo }).eq("id", tenantId);

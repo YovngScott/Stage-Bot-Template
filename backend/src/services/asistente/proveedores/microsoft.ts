@@ -296,17 +296,39 @@ class ProveedorMicrosoft implements EmailProvider {
     return null;
   }
 
-  async estadoRespuesta(borradorId: string): Promise<EstadoRespuesta> {
+  async estadoRespuesta(ref: { borradorId: string; hiloId: string }): Promise<EstadoRespuesta> {
     try {
       // Graph conserva el id al enviar: el mensaje pasa a Elementos enviados y
       // isDraft cambia a false. Eso permite distinguir enviado de descartado,
       // cosa que en Gmail no se puede.
-      const mensaje = await this.llamar(`/me/messages/${borradorId}?$select=isDraft`);
-      return mensaje?.isDraft === false ? "enviada" : "pendiente";
+      const mensaje = await this.llamar(`/me/messages/${ref.borradorId}?$select=isDraft`);
+      if (mensaje?.isDraft === false) return "enviada";
     } catch (err: any) {
       if (err?.status === 404) return "descartada";
-      console.warn(`[asistente:microsoft] No se pudo consultar el borrador ${borradorId}:`, err);
+      console.warn(`[asistente:microsoft] No se pudo consultar el borrador ${ref.borradorId}:`, err);
       return "desconocido";
+    }
+
+    // El borrador sigue ahí, pero eso no significa que el correo siga sin
+    // contestar: al responder desde el móvil se crea un mensaje nuevo y el
+    // borrador queda huérfano. Lo que decide es si la conversación ya tiene
+    // una respuesta salida del buzón.
+    return (await this.hiloYaRespondido(ref.hiloId)) ? "enviada" : "pendiente";
+  }
+
+  /** ¿Hay algún mensaje enviado por el titular en esta conversación? */
+  private async hiloYaRespondido(hiloId: string): Promise<boolean> {
+    if (!hiloId) return false;
+    try {
+      const filtro = `conversationId eq '${hiloId.replace(/'/g, "''")}'`;
+      const enviados = await this.llamar(
+        `/me/mailFolders/sentitems/messages?$select=id&$top=1&$filter=${encodeURIComponent(filtro)}`,
+      );
+      return (enviados?.value ?? []).length > 0;
+    } catch (err) {
+      // No poder mirar la conversación no prueba nada: se deja pendiente.
+      console.warn(`[asistente:microsoft] No se pudo revisar la conversación ${hiloId}:`, err);
+      return false;
     }
   }
 

@@ -116,11 +116,16 @@ export interface EmailProvider {
   etiquetar(correoId: string, etiqueta: EtiquetaAsistente): Promise<void>;
 
   /**
-   * ¿Qué pasó con un borrador que dejamos esperando? Permite que el dashboard
-   * deje de mostrar como pendiente lo que el titular ya resolvió en su buzón.
+   * ¿Sigue pendiente este correo, o el titular ya lo resolvió?
+   *
+   * Mira el borrador Y la conversación, porque no basta con lo primero: al
+   * responder desde el móvil, los clientes de correo suelen crear un mensaje
+   * nuevo en vez de enviar el borrador, que queda huérfano en la carpeta. El
+   * correo está contestado y el panel seguía reclamándolo.
+   *
    * Best-effort: ante cualquier fallo devuelve "desconocido", nunca lanza.
    */
-  estadoRespuesta(borradorId: string): Promise<EstadoRespuesta>;
+  estadoRespuesta(ref: { borradorId: string; hiloId: string }): Promise<EstadoRespuesta>;
 
   /** Libera conexiones abiertas (IMAP). Los proveedores REST no hacen nada. */
   cerrar?(): Promise<void>;

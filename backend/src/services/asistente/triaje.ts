@@ -56,7 +56,7 @@ async function filtrarYaProcesados(tenantId: string, ids: string[]): Promise<str
 async function reconciliarPendientes(tenant: Tenant, proveedor: EmailProvider): Promise<number> {
   const { data, error } = await supabase
     .from("asistente_correos")
-    .select("id, borrador_id")
+    .select("id, borrador_id, gmail_thread_id")
     .eq("tenant_id", tenant.id)
     .is("resuelto_en", null)
     .not("borrador_id", "is", null)
@@ -68,7 +68,10 @@ async function reconciliarPendientes(tenant: Tenant, proveedor: EmailProvider): 
 
   let cerrados = 0;
   for (const fila of data) {
-    const estado = await proveedor.estadoRespuesta(fila.borrador_id as string);
+    const estado = await proveedor.estadoRespuesta({
+      borradorId: fila.borrador_id as string,
+      hiloId: (fila.gmail_thread_id as string) ?? "",
+    });
     // "pendiente" sigue esperando; "desconocido" es un fallo de consulta y no
     // debe cerrar nada — mejor mostrarlo de más que ocultarlo por error.
     if (estado === "pendiente" || estado === "desconocido") continue;

@@ -40,6 +40,32 @@ function obtenerRedirectUriMicrosoft(req: Request): string {
   return `${proto}://${req.get("host")}/api/asistente/microsoft-callback`;
 }
 
+/**
+ * Medianoche de HOY en la zona del cliente, no en la del servidor.
+ *
+ * El backend corre en UTC: pasadas las 8 p.m. en América ya es "mañana" allá,
+ * y las métricas del día aparecían en cero mientras el cliente seguía viendo
+ * correos de esa misma tarde en la lista.
+ */
+function inicioDelDiaDelTenant(zonaHoraria: string): Date {
+  const ahora = new Date();
+  try {
+    // en-CA da YYYY-MM-DD, que es lo que necesita el Date construido abajo.
+    const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: zonaHoraria }).format(ahora);
+    // El desfase de la zona en este instante, para llevar su medianoche a UTC.
+    const comoUtc = new Date(ahora.toLocaleString("en-US", { timeZone: "UTC" }));
+    const comoLocal = new Date(ahora.toLocaleString("en-US", { timeZone: zonaHoraria }));
+    const desfaseMs = comoUtc.getTime() - comoLocal.getTime();
+    return new Date(new Date(`${hoy}T00:00:00Z`).getTime() + desfaseMs);
+  } catch {
+    // Zona horaria inválida en la config: se cae al día UTC, que es lo que
+    // hacía antes — peor precisión, pero nunca un crash.
+    const respaldo = new Date(ahora);
+    respaldo.setUTCHours(0, 0, 0, 0);
+    return respaldo;
+  }
+}
+
 /** Rechaza peticiones a bots que no son de tipo asistente. */
 function exigirAsistente(req: Request, res: Response): boolean {
   if (req.tenant!.config.kind !== "assistant") {
@@ -194,8 +220,7 @@ asistenteRouter.get("/microsoft-callback", async (req: Request, res: Response) =
 /** GET /api/:slug/asistente/metricas — resumen para las tarjetas del dashboard. */
 asistenteRouter.get("/metricas", requiereAdmin, async (req: Request, res: Response) => {
   if (!exigirAsistente(req, res)) return;
-  const desde = new Date();
-  desde.setHours(0, 0, 0, 0);
+  const desde = inicioDelDiaDelTenant(req.tenant!.config.zonaHoraria);
 
   try {
     const { data, error } = await supabase

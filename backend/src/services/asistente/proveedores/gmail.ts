@@ -152,18 +152,37 @@ class ProveedorGmail implements EmailProvider {
     }
   }
 
-  async estadoRespuesta(borradorId: string): Promise<EstadoRespuesta> {
+  async estadoRespuesta(ref: { borradorId: string; hiloId: string }): Promise<EstadoRespuesta> {
     try {
-      await conReintentos(() => this.gmail.users.drafts.get({ userId: "me", id: borradorId }), "gmail");
-      return "pendiente";
+      await conReintentos(() => this.gmail.users.drafts.get({ userId: "me", id: ref.borradorId }), "gmail");
     } catch (err: any) {
       const codigo = err?.code ?? err?.response?.status;
       // 404: el borrador desapareció. Gmail lo borra tanto al enviarlo como al
       // descartarlo, y no deja rastro que permita distinguirlo — así que se
       // reporta resuelto sin afirmar cuál de las dos cosas fue.
       if (codigo === 404) return "resuelta";
-      console.warn(`[asistente:gmail] No se pudo consultar el borrador ${borradorId}:`, err);
+      console.warn(`[asistente:gmail] No se pudo consultar el borrador ${ref.borradorId}:`, err);
       return "desconocido";
+    }
+
+    // El borrador sigue ahí, pero el titular pudo haber respondido aparte
+    // (típico desde el móvil): lo que importa es si el hilo ya tiene una
+    // respuesta suya, no si el borrador quedó huérfano.
+    return (await this.hiloYaRespondido(ref.hiloId)) ? "enviada" : "pendiente";
+  }
+
+  /** ¿Hay algún mensaje con la etiqueta SENT en esta conversación? */
+  private async hiloYaRespondido(hiloId: string): Promise<boolean> {
+    if (!hiloId) return false;
+    try {
+      const hilo = await conReintentos(
+        () => this.gmail.users.threads.get({ userId: "me", id: hiloId, format: "minimal" }),
+        "gmail",
+      );
+      return (hilo.data.messages ?? []).some((m) => (m.labelIds ?? []).includes("SENT"));
+    } catch (err) {
+      console.warn(`[asistente:gmail] No se pudo revisar la conversación ${hiloId}:`, err);
+      return false;
     }
   }
 

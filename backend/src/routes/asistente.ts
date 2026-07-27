@@ -200,7 +200,7 @@ asistenteRouter.get("/metricas", requiereAdmin, async (req: Request, res: Respon
   try {
     const { data, error } = await supabase
       .from("asistente_correos")
-      .select("resultado, filtrado_heuristica, confianza, resuelto_en")
+      .select("resultado, filtrado_heuristica, confianza, resuelto_en, borrador_id")
       .eq("tenant_id", req.tenant!.id)
       .gte("procesado_en", desde.toISOString());
     if (error) throw error;
@@ -216,9 +216,11 @@ asistenteRouter.get("/metricas", requiereAdmin, async (req: Request, res: Respon
       descartadosAutomaticos: filas.filter((f: any) => f.filtrado_heuristica).length,
       enviadosSolos: filas.filter((f: any) => f.resultado === "enviado").length,
       borradoresCreados: filas.filter((f: any) => f.resultado === "auto").length,
-      pendientesRevision: filas.filter(
-        (f: any) => (f.resultado === "revision" || f.resultado === "error") && !f.resuelto_en,
-      ).length,
+      // Mismo criterio que la lista: todo borrador escrito que el titular aún
+      // no mandó, sin importar si el bot lo escaló o solo no tenía permiso de
+      // enviar. Contar solo los escalados dejaba fuera borradores que sí
+      // esperaban su clic, y el panel mostraba menos de los que había.
+      pendientesRevision: filas.filter((f: any) => f.borrador_id && !f.resuelto_en).length,
       resueltosPorTitular: filas.filter((f: any) => Boolean(f.resuelto_en)).length,
       confianzaPromedio: confianzaPromedio === null ? null : Number(confianzaPromedio.toFixed(3)),
     });
@@ -246,11 +248,13 @@ asistenteRouter.get("/correos", requiereAdmin, async (req: Request, res: Respons
     if (["enviado", "auto", "revision", "omitido", "error"].includes(resultado)) {
       consulta = consulta.eq("resultado", resultado);
     }
-    // La lista de "necesitan tu criterio" solo debe traer lo que sigue
-    // esperando: si el titular ya envió o descartó el borrador en su buzón,
-    // deja de ser pendiente aunque el resultado del triaje siga siendo el mismo.
+    // "Pendiente" = hay un borrador escrito que el titular todavía no ha
+    // mandado. Incluye tanto lo escalado ('revision') como lo que el bot
+    // resolvió pero no envió porque el envío automático está apagado ('auto'):
+    // desde su lado ambos son lo mismo, un correo esperando su clic. Y si ya
+    // lo envió o lo descartó en su buzón, sale de la lista.
     if (String(req.query.pendientes ?? "") === "1") {
-      consulta = consulta.is("resuelto_en", null);
+      consulta = consulta.is("resuelto_en", null).not("borrador_id", "is", null);
     }
 
     const { data, error } = await consulta;

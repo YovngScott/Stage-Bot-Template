@@ -142,7 +142,13 @@ export async function conReintentos<T>(
     } catch (err: any) {
       ultimoError = err;
       const codigo = err?.code ?? err?.status ?? err?.response?.status;
-      const recuperable = codigo === 429 || codigo === 403 || (codigo >= 500 && codigo < 600);
+      // 403 es ambiguo: Google y Microsoft lo usan tanto para "vas muy rápido"
+      // como para "no tienes ese permiso". Reintentar el segundo caso es tiempo
+      // perdido —el permiso no aparece esperando— y con backoff exponencial
+      // deja al dashboard colgado ~15s en "Comprobando". Solo se reintenta si
+      // el mensaje habla de cuota.
+      const esCuota = /rate|quota|throttl|too many/i.test(String(err?.message ?? ""));
+      const recuperable = codigo === 429 || (codigo === 403 && esCuota) || (codigo >= 500 && codigo < 600);
       if (!recuperable || intento === intentos - 1) throw err;
 
       const espera = Math.min(2 ** intento * 1000, 32_000) + Math.random() * 1000;

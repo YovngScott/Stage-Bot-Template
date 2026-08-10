@@ -64,6 +64,17 @@
   ],
   "manualRuns": [
     {
+      "id": "74cfc68b-b18b-4286-abd2-7197fb3cafbb",
+      "question": "Haces citas?",
+      "response": "Sí, podemos agendar una cita para ti. ¿Podrías decirme para qué necesitas la cita? ¿Es para reparar un dispositivo Apple o para algún otro servicio?",
+      "decision": "answer",
+      "tools": [
+        "consultar_agenda"
+      ],
+      "latencyMs": 602,
+      "testedAt": "2026-08-10T19:32:55.045Z"
+    },
+    {
       "id": "59b0c845-7698-4d91-861e-db83821ca354",
       "question": "Dame el alfabeto ruso",
       "response": "Lo siento, pero no puedo ayudarte con el alfabeto ruso. Mi función es atender asuntos relacionados con Wiltech República Dominicana.",
@@ -76,7 +87,7 @@
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-08-10T19:07:54.607Z",
-  "updatedAt": "2026-08-10T19:30:08.907Z",
+  "updatedAt": "2026-08-10T19:32:55.045Z",
   "publishedAt": "2026-08-10T19:07:54.607Z",
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null

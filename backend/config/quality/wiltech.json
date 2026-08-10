@@ -25,11 +25,21 @@
   },
   "state": "active",
   "tests": [],
-  "manualRuns": [],
+  "manualRuns": [
+    {
+      "id": "59b0c845-7698-4d91-861e-db83821ca354",
+      "question": "Dame el alfabeto ruso",
+      "response": "Lo siento, pero no puedo ayudarte con el alfabeto ruso. Mi función es atender asuntos relacionados con Wiltech República Dominicana.",
+      "decision": "redirect",
+      "tools": [],
+      "latencyMs": 633,
+      "testedAt": "2026-08-10T19:13:56.506Z"
+    }
+  ],
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-08-10T19:07:54.607Z",
-  "updatedAt": "2026-08-10T19:07:54.607Z",
+  "updatedAt": "2026-08-10T19:13:56.506Z",
   "publishedAt": "2026-08-10T19:07:54.607Z",
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null

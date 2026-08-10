@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import { spawn, type ChildProcess } from "node:child_process";
 import { config } from "./lib/config.js";
 import { cargarTenants, listarTenants } from "./lib/tenants.js";
 import { resolverTenant } from "./lib/tenantMiddleware.js";
@@ -15,6 +16,7 @@ import { iniciarTodasLasSesiones } from "./services/baileys.js";
 import { iniciarScheduler } from "./services/scheduler.js";
 
 const app = express();
+let dashboardProcess: ChildProcess | null = null;
 
 // Fly.io termina el TLS y reenvía por HTTP interno con X-Forwarded-Proto: al
 // confiar en el proxy, req.protocol refleja "https" real.
@@ -47,7 +49,51 @@ app.use("/api/calendar", calendarRouter);
 // fija, sin :slug. El tenant se recupera del `state` dentro del router.
 app.use("/api/asistente", asistenteRouter);
 
+// Cada app dedicada de Fly sirve su dashboard y su API desde el mismo
+// hostname. Nitro escucha solamente dentro de la Machine; Express conserva el
+// puerto público y reenvía aquí toda ruta que no sea API.
+app.use(async (req, res, next) => {
+  const dashboardOrigin = process.env.DASHBOARD_ORIGIN?.trim();
+  if (!dashboardOrigin || req.path.startsWith("/api/")) return next();
+  if (req.method !== "GET" && req.method !== "HEAD") return res.sendStatus(405);
+
+  try {
+    const target = new URL(req.originalUrl, dashboardOrigin);
+    const upstream = await fetch(target, { method: req.method });
+    res.status(upstream.status);
+    upstream.headers.forEach((value, name) => {
+      if (!["connection", "keep-alive", "transfer-encoding"].includes(name.toLowerCase())) {
+        res.setHeader(name, value);
+      }
+    });
+    if (req.method === "HEAD") return res.end();
+    return res.send(Buffer.from(await upstream.arrayBuffer()));
+  } catch (error) {
+    return next(error);
+  }
+});
+
+function iniciarDashboardIntegrado() {
+  const entry = process.env.DASHBOARD_ENTRY?.trim();
+  const port = process.env.DASHBOARD_PORT?.trim() || "3001";
+  if (!entry) return;
+
+  dashboardProcess = spawn(process.execPath, [entry], {
+    env: { ...process.env, HOST: "127.0.0.1", PORT: port },
+    stdio: "inherit",
+  });
+  dashboardProcess.on("error", (error) => {
+    console.error("[dashboard] No se pudo iniciar el dashboard integrado:", error);
+    process.exit(1);
+  });
+  dashboardProcess.on("exit", (code, signal) => {
+    console.error(`[dashboard] El proceso terminó (código ${code ?? "?"}, señal ${signal ?? "?"}).`);
+    process.exit(code ?? 1);
+  });
+}
+
 async function iniciar() {
+  iniciarDashboardIntegrado();
   const tenants = await cargarTenants();
   if (tenants.size === 0) {
     console.warn(

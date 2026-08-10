@@ -1,10 +1,17 @@
 # No subir al build de Docker: se instalan limpio en la imagen (Linux) y los
 # secretos/sesión no deben ir en la imagen.
 node_modules
+**/node_modules
 .baileys_auth
 .env
 .env.*
+**/.env
+**/.env.*
+!**/config.public.env
 dist
 build
+**/.output
+.wrangler
+**/.wrangler
 *.log
 npm-debug.log*

@@ -92,7 +92,7 @@ function AsistentePage() {
     try {
       const [m, r, p] = await Promise.all([
         adminFetch("/asistente/metricas"),
-        adminFetch("/asistente/correos?limite=25"),
+        adminFetch("/asistente/correos?limite=15"),
         adminFetch("/asistente/correos?limite=25&pendientes=1"),
       ]);
       if (!m.ok || !r.ok || !p.ok) throw new Error("El backend respondió con error.");
@@ -157,7 +157,7 @@ function AsistentePage() {
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_1fr]">
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,360px)_1fr]">
         <AssistantBotCard />
 
         <div className="space-y-6">
@@ -257,16 +257,18 @@ function AsistentePage() {
               </div>
             )}
           </CardShell>
+        </div>
 
+        <div className="lg:col-span-2">
           <CardShell title="Actividad reciente">
             {!error && cargando && <Skeleton className="h-32 w-full" />}
             {!error && !cargando && recientes.length === 0 && (
               <p className="text-sm text-muted-foreground">Todavía no hay correos triados.</p>
             )}
             {recientes.length > 0 && (
-              <div className="-mx-5 overflow-x-auto px-5">
+              <div className="-mx-5 max-h-[430px] overflow-auto px-5">
                 <table className="w-full min-w-[520px] text-left text-sm">
-                  <thead>
+                  <thead className="sticky top-0 z-10 bg-card">
                     <tr className="text-xs text-muted-foreground">
                       <th className="pb-2 pr-3 font-normal">Correo</th>
                       <th className="pb-2 pr-3 font-normal">Categoría</th>

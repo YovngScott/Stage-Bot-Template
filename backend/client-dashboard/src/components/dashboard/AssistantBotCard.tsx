@@ -86,7 +86,7 @@ export function AssistantBotCard() {
   const conectado = Boolean(estado?.conectado);
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-card/60 p-6 backdrop-blur-xl">
+    <div className="relative self-start overflow-hidden rounded-2xl border border-white/5 bg-card/60 p-6 backdrop-blur-xl">
       <div className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-violet-400/20 blur-3xl" />
       <div className="flex items-center justify-between">
         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-500/15 text-violet-300">

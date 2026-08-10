@@ -79,6 +79,9 @@ export interface TenantConfig {
   moneda: string;
   zonaHoraria: string;
   adminEmails: string[];
+  /** Contexto e instrucciones editables desde el Owner Console. */
+  companyInfo: string;
+  extraInstructions: string;
   promptExtra: string;
   googleCalendarId: string;
   /** Presente solo cuando kind === "assistant". */
@@ -195,6 +198,8 @@ function cargarConfigsDeDisco(): TenantConfig[] {
         moneda: json.moneda ?? "USD",
         zonaHoraria: json.zonaHoraria ?? "America/Santo_Domingo",
         adminEmails: (json.adminEmails ?? []).map((e: string) => e.trim().toLowerCase()).filter(Boolean),
+        companyInfo: String(json.companyInfo ?? ""),
+        extraInstructions: String(json.extraInstructions ?? ""),
         promptExtra: json.promptExtra ?? "",
         googleCalendarId: json.googleCalendarId ?? "primary",
         asistente: kind === "assistant" ? normalizarAsistente(json.asistente) : null,

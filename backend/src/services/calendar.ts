@@ -48,6 +48,10 @@ function leerToken(valor: string | null): string | null {
   return descifrar(valor);
 }
 
+function tokenYaCifrado(valor: string | null): boolean {
+  return Boolean(valor && valor.split(".").length === 3);
+}
+
 function crearOAuthClient(redirectUri?: string): OAuth2Client | null {
   if (!config.google.oauthClientId || !config.google.oauthClientSecret) return null;
   return new google.auth.OAuth2(config.google.oauthClientId, config.google.oauthClientSecret, redirectUri);
@@ -157,11 +161,27 @@ async function obtenerTokensGuardados(tenantId: string): Promise<TokensGuardados
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  return {
+  const tokens = {
     refresh_token: leerToken(data.refresh_token) ?? "",
     access_token: leerToken(data.access_token),
     expiry_date: data.expiry_date,
   };
+
+  // Migración transparente de autorizaciones históricas guardadas en claro.
+  // Se hace después de leerlas correctamente y solo una vez por fila.
+  if (cifradoDisponible() && (!tokenYaCifrado(data.refresh_token) || (data.access_token && !tokenYaCifrado(data.access_token)))) {
+    const { error: migracionError } = await supabase
+      .from("google_oauth_tokens")
+      .update({
+        refresh_token: tokenYaCifrado(data.refresh_token) ? data.refresh_token : protegerToken(tokens.refresh_token),
+        access_token: tokenYaCifrado(data.access_token) ? data.access_token : protegerToken(tokens.access_token),
+        actualizado_en: new Date().toISOString(),
+      })
+      .eq("tenant_id", tenantId);
+    if (migracionError) console.error(`[oauth:${tenantId}] No se pudieron migrar los tokens históricos:`, migracionError);
+  }
+
+  return tokens;
 }
 
 async function obtenerClienteCalendar(tenantId: string): Promise<calendar_v3.Calendar | null> {

@@ -1,6 +1,7 @@
 import { config } from "../../lib/config.js";
 import type { AsistenteConfig, Tenant } from "../../lib/tenants.js";
 import type { CorreoEntrante } from "./proveedores/index.js";
+import { booleanoEstricto, contieneInyeccionDePrompt } from "./seguridad.js";
 
 /**
  * Capa de clasificación por IA. Solo la alcanzan los correos que sobrevivieron
@@ -110,7 +111,7 @@ Tu trabajo es dejar el mayor número posible de correos ya resueltos. Por defect
 - Sé breve y cortés. Un mensaje corto y correcto siempre es preferible a uno largo que se arriesga.
 - Si al escribirlo te das cuenta de que no puedes responder sin comprometer al titular, cambia "requires_personal_decision" a true: eso lo convierte en borrador para que él lo revise.
 
-- Incluso si el correo es un simple aviso o agradecimiento y no exige respuesta, envía un acuse breve y cortés. Prefiere una respuesta corta a no responder.
+- Si el correo no espera respuesta (aviso, recibo, confirmación, agradecimiento, copia informativa), usa "requires_action": false y "draft_reply_suggested": null. No generes ruido ni bucles contestando mensajes informativos.
 - La ÚNICA excepción es "requires_personal_decision": true. Eso NO se envía: se guarda como borrador y se le avisa al titular para que lo revise y lo mande él. Se reserva para lo que de verdad debe salir de su puño y letra:
   · Compromisos legales o contractuales: firmar, aceptar términos, renunciar a derechos, temas de litigio.
   · Dinero comprometido: aprobar pagos o presupuestos, aceptar precios, autorizar gastos o reembolsos.
@@ -240,8 +241,11 @@ export async function clasificarCorreo(
     // Una confianza ilegible se trata como 0: obliga a revisión humana.
     confianza: Number.isFinite(confianzaCruda) ? Math.min(Math.max(confianzaCruda, 0), 1) : 0,
     justificacion: String(json.agent_rationale ?? "").trim().slice(0, 500),
-    requiereAccion: Boolean(json.requires_action),
-    requiereDecisionPersonal: Boolean(json.requires_personal_decision),
+    requiereAccion: booleanoEstricto(json.requires_action),
+    // Una señal determinista de prompt injection siempre obliga a revisión,
+    // aunque el modelo afirme que el mensaje es rutinario.
+    requiereDecisionPersonal:
+      booleanoEstricto(json.requires_personal_decision) || contieneInyeccionDePrompt(correo.cuerpo),
     borrador: normalizarBorrador(json.draft_reply_suggested, correo),
     tarea: normalizarTarea(json.task_extraction),
   };

@@ -52,6 +52,10 @@ export function iniciarScheduler(): void {
   programarTriajeAsistentes();
 }
 
+export function detenerScheduler(): void {
+  for (const tarea of cron.getTasks().values()) tarea.stop();
+}
+
 /**
  * Programa la ingesta de correo de cada bot tipo asistente. Cada tenant define
  * su propio intervalo desde el Bot Builder, así que se agrupan por intervalo

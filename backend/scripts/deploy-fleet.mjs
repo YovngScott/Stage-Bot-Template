@@ -94,7 +94,7 @@ primary_region = 'ewr'
   BAILEYS_AUTH_DIR = '/data/.baileys_auth'
   PORT = '8080'
   AI_PROVIDER = 'groq'
-  GROQ_MODEL = 'llama-3.3-70b-versatile'
+  GROQ_MODEL = 'openai/gpt-oss-120b'
   TENANT_SLUGS = '${slug}'
 
 [[mounts]]

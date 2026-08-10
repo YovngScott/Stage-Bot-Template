@@ -102,6 +102,12 @@ Devuelve un JSON con esta forma exacta:
 
 ${instruccionesDeVoz(tenant, asistente)}
 
+CONTEXTO E INSTRUCCIONES AUTORIZADAS PARA ESTE CLIENTE:
+${[
+  tenant.config.companyInfo,
+  tenant.config.extraInstructions,
+].filter(Boolean).join("\n\n") || "No hay instrucciones adicionales para este cliente."}
+
 POLÍTICA DE RESPUESTA (la regla más importante):
 Tu trabajo es dejar el mayor número posible de correos ya resueltos. Por defecto SIEMPRE redactas una respuesta: es lo que le ahorra tiempo al titular.
 

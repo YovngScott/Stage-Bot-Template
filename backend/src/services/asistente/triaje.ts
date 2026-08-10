@@ -7,6 +7,7 @@ import { envioAutomaticoActivo } from "../../lib/tenants.js";
 import { describirMotivo, evaluarHeuristica, extraerDireccion } from "./heuristica.js";
 import { validarParaEnvio } from "./validacion.js";
 import { construirDestinoSeguro } from "./seguridad.js";
+import { queueFailure, recordMetric } from "../operations.js";
 
 /**
  * Orquestador del pipeline de triaje:
@@ -245,6 +246,7 @@ async function avisarEjecutivo(tenant: Tenant, texto: string): Promise<boolean> 
  * se saltan, así que puede correr tantas veces como haga falta.
  */
 async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
+  const inicio = Date.now();
   const asistente = tenant.config.asistente;
   const resumen: ResumenCorrida = {
     revisados: 0,
@@ -269,6 +271,7 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
     proveedor = await obtenerProveedorCorreo(tenant);
   } catch (error: any) {
     resumen.error = error?.message ?? "No se pudo abrir la conexión de correo.";
+    await queueFailure({ tenantSlug: tenant.config.slug, source: "oauth", operation: "conectar_correo", error }).catch(() => undefined);
     return resumen;
   }
   if (!proveedor) {
@@ -399,6 +402,7 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
           // Si el envío falla no perdemos el trabajo: se deja como borrador y
           // se avisa, que es el mismo camino de los correos que sí revisa.
           console.error(`[asistente:${tenant.config.slug}] Falló el envío de ${correo.id}; queda en borrador:`, err);
+          await queueFailure({ tenantSlug: tenant.config.slug, source: "email", operation: "enviar_correo", error: err, dedupeKey: `${tenant.config.slug}:email-send:${correo.id}` }).catch(() => undefined);
           const borradorId = await proveedor.crearBorrador(destino).catch(() => null);
           resumen.escaladosRevision += 1;
           const avisado = await avisarEjecutivo(
@@ -420,6 +424,7 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
         // Envío automático apagado para este cliente: se comporta como antes,
         // dejando todo en borradores.
         const borradorId = await proveedor.crearBorrador(destino).catch((err) => {
+          void queueFailure({ tenantSlug: tenant.config.slug, source: "email", operation: "crear_borrador", error: err, dedupeKey: `${tenant.config.slug}:draft:${correo.id}` });
           console.error(`[asistente:${tenant.config.slug}] No se pudo crear el borrador de ${correo.id}:`, err);
           return null;
         });
@@ -461,6 +466,7 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
   } catch (err: any) {
     resumen.error = err?.message ?? "Error inesperado durante el triaje.";
     console.error(`[asistente:${tenant.config.slug}] Triaje fallido:`, err);
+    await queueFailure({ tenantSlug: tenant.config.slug, source: "email", operation: "triaje", error: err }).catch(() => undefined);
   } finally {
     // IMAP mantiene un socket abierto; dejarlo colgado agota las conexiones
     // del servidor de correo tras unas cuantas corridas.
@@ -483,5 +489,6 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
       .eq("id", ejecucionId);
   }
 
+  await recordMetric({ tenantSlug: tenant.config.slug, source: "email", latencyMs: Date.now() - inicio, tokens: 0 }).catch(() => undefined);
   return resumen;
 }

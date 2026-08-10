@@ -5,7 +5,7 @@
   "clientName": "Wiltech R. Dominicana.",
   "productName": "AI Messaging Suite",
   "botType": "messaging",
-  "groqModel": "llama-3.3-70b-versatile",
+  "groqModel": "openai/gpt-oss-120b",
   "updateClient": false,
   "tenantConfig": {
     "slug": "wiltech",

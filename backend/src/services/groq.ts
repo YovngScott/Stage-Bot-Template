@@ -63,7 +63,10 @@ async function llamarGroq(mensajes: MensajeGroq[], intentos = 4): Promise<any> {
         tools: toolsGroq,
         tool_choice: "auto",
         temperature: 0.2,
-        max_tokens: 1024,
+        max_completion_tokens: 1024,
+        ...(config.groq.model.startsWith("openai/gpt-oss")
+          ? { reasoning_effort: "medium", include_reasoning: false }
+          : {}),
       }),
       signal: AbortSignal.timeout(25000),
     });

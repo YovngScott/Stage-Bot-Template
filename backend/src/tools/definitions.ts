@@ -17,11 +17,13 @@ export const tools: FunctionDeclaration[] = [
       properties: {
         busqueda: {
           type: Type.STRING,
-          description: "Términos de búsqueda del producto/servicio que pide el cliente.",
+          description:
+            "Términos de búsqueda del producto/servicio que pide el cliente.",
         },
         categoria: {
           type: Type.STRING,
-          description: "Categoría si el cliente la mencionó (opcional, texto libre del negocio)",
+          description:
+            "Categoría si el cliente la mencionó (opcional, texto libre del negocio)",
         },
       },
       required: ["busqueda"],
@@ -39,12 +41,21 @@ export const tools: FunctionDeclaration[] = [
       properties: {
         estado: {
           type: Type.STRING,
-          enum: ["nuevo", "interesado", "cotizado", "agendado", "cliente", "perdido", "requiere_humano"],
+          enum: [
+            "nuevo",
+            "interesado",
+            "cotizado",
+            "agendado",
+            "cliente",
+            "perdido",
+            "requiere_humano",
+          ],
           description: "Nueva etapa del cliente en el embudo",
         },
         notas: {
           type: Type.STRING,
-          description: "Resumen breve del contexto: qué quiere, preferencias, objeciones.",
+          description:
+            "Resumen breve del contexto: qué quiere, preferencias, objeciones.",
         },
         etiquetas: {
           type: Type.ARRAY,
@@ -59,13 +70,15 @@ export const tools: FunctionDeclaration[] = [
   },
   {
     name: "verificar_disponibilidad",
-    description: "Verifica si un horario está libre en la agenda del negocio ANTES de confirmar una cita al cliente.",
+    description:
+      "Verifica si un horario está libre en la agenda del negocio ANTES de confirmar una cita al cliente.",
     parameters: {
       type: Type.OBJECT,
       properties: {
         inicio_iso: {
           type: Type.STRING,
-          description: "Fecha y hora propuesta en formato ISO 8601 con zona horaria del negocio, ej: 2026-07-13T10:00:00-04:00",
+          description:
+            "Fecha y hora propuesta en formato ISO 8601 con zona horaria del negocio, ej: 2026-07-13T10:00:00-04:00",
         },
         duracion_minutos: {
           type: Type.INTEGER,
@@ -85,7 +98,8 @@ export const tools: FunctionDeclaration[] = [
       properties: {
         inicio_iso: {
           type: Type.STRING,
-          description: "Fecha y hora confirmada en ISO 8601 con zona horaria del negocio, ej: 2026-07-13T10:00:00-04:00",
+          description:
+            "Fecha y hora confirmada en ISO 8601 con zona horaria del negocio, ej: 2026-07-13T10:00:00-04:00",
         },
         duracion_minutos: {
           type: Type.INTEGER,
@@ -93,10 +107,57 @@ export const tools: FunctionDeclaration[] = [
         },
         motivo: {
           type: Type.STRING,
-          description: "Motivo de la cita, ej: 'Corte de cabello' o 'Consulta inicial'",
+          description:
+            "Motivo de la cita, ej: 'Corte de cabello' o 'Consulta inicial'",
+        },
+        cliente_confirmo: {
+          type: Type.BOOLEAN,
+          description:
+            "Debe ser true únicamente si el cliente confirmó explícitamente la fecha y hora en la conversación.",
         },
       },
-      required: ["inicio_iso", "motivo"],
+      required: ["inicio_iso", "motivo", "cliente_confirmo"],
+    },
+  },
+  {
+    name: "reprogramar_cita",
+    description:
+      "Mueve la próxima cita futura del cliente. Úsala solo después de confirmar explícitamente el nuevo horario y verificar disponibilidad.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        inicio_iso: {
+          type: Type.STRING,
+          description:
+            "Nueva fecha y hora confirmada en ISO 8601 con zona horaria.",
+        },
+        duracion_minutos: {
+          type: Type.INTEGER,
+          description: "Duración estimada en minutos (default 60).",
+        },
+        cliente_confirmo: {
+          type: Type.BOOLEAN,
+          description:
+            "True solo si el cliente confirmó explícitamente el cambio.",
+        },
+      },
+      required: ["inicio_iso", "cliente_confirmo"],
+    },
+  },
+  {
+    name: "cancelar_cita",
+    description:
+      "Cancela la próxima cita futura del cliente. Requiere confirmación explícita; nunca canceles por una pregunta ambigua.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        cliente_confirmo: {
+          type: Type.BOOLEAN,
+          description:
+            "True solo si el cliente confirmó explícitamente la cancelación.",
+        },
+      },
+      required: ["cliente_confirmo"],
     },
   },
   {
@@ -110,7 +171,16 @@ export const tools: FunctionDeclaration[] = [
       properties: {
         categoria: {
           type: Type.STRING,
-          enum: ["precio", "disponibilidad", "horario_ubicacion", "cita", "envio", "pago", "garantia", "otra"],
+          enum: [
+            "precio",
+            "disponibilidad",
+            "horario_ubicacion",
+            "cita",
+            "envio",
+            "pago",
+            "garantia",
+            "otra",
+          ],
         },
         pregunta: {
           type: Type.STRING,
@@ -118,11 +188,13 @@ export const tools: FunctionDeclaration[] = [
         },
         servicio_texto: {
           type: Type.STRING,
-          description: "Producto/servicio mencionado por el cliente, aunque no exista en el catálogo.",
+          description:
+            "Producto/servicio mencionado por el cliente, aunque no exista en el catálogo.",
         },
         servicio_id: {
           type: Type.STRING,
-          description: "UUID del producto/servicio del catálogo si consultar_catalogo devolvió una coincidencia",
+          description:
+            "UUID del producto/servicio del catálogo si consultar_catalogo devolvió una coincidencia",
         },
       },
       required: ["categoria", "pregunta"],

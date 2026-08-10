@@ -5,6 +5,7 @@ import { supabase } from "./supabase.js";
 
 /** Tipo de bot. Lo elige el Owner Console al crearlo y decide qué módulos arrancan. */
 export type BotKind = "assistant" | "messaging" | "voice";
+export type BotBehavior = "sales" | "technical_support" | "personal_assistant";
 
 /**
  * Configuración del módulo de asistente virtual (solo aplica a kind
@@ -79,6 +80,12 @@ export interface TenantConfig {
   moneda: string;
   zonaHoraria: string;
   adminEmails: string[];
+  behavior: BotBehavior;
+  policy: {
+    canQuoteByChat: boolean;
+    requireAppointmentConfirmation: boolean;
+    requireHumanForCommitments: boolean;
+  };
   /** Contexto e instrucciones editables desde el Owner Console. */
   companyInfo: string;
   extraInstructions: string;
@@ -90,18 +97,26 @@ export interface TenantConfig {
 
 /** Taxonomía por defecto del triaje (la del análisis de requisitos). */
 const CATEGORIAS_POR_DEFECTO: Record<string, string> = {
-  Billing: "Facturas, pagos, alertas financieras, reembolsos, aprobaciones de presupuesto.",
-  Support: "Errores de software, reportes de fallos, caídas del sistema, problemas de acceso a funciones.",
-  Sales: "Consultas de clientes, demos, cotizaciones, renovaciones de contrato, intención de compra.",
-  Legal: "Contratos, términos de servicio, acuerdos de confidencialidad, cumplimiento regulatorio.",
-  Security: "Solicitudes de autorización de acceso, restablecimiento de contraseñas, alertas de actividad sospechosa.",
-  General_Ops: "Administración interna, actualizaciones generales, operativa rutinaria no urgente.",
+  Billing:
+    "Facturas, pagos, alertas financieras, reembolsos, aprobaciones de presupuesto.",
+  Support:
+    "Errores de software, reportes de fallos, caídas del sistema, problemas de acceso a funciones.",
+  Sales:
+    "Consultas de clientes, demos, cotizaciones, renovaciones de contrato, intención de compra.",
+  Legal:
+    "Contratos, términos de servicio, acuerdos de confidencialidad, cumplimiento regulatorio.",
+  Security:
+    "Solicitudes de autorización de acceso, restablecimiento de contraseñas, alertas de actividad sospechosa.",
+  General_Ops:
+    "Administración interna, actualizaciones generales, operativa rutinaria no urgente.",
 };
 
 /** Normaliza el bloque `asistente` del JSON, aplicando defaults sensatos. */
 function normalizarAsistente(raw: any): AsistenteConfig | null {
   if (!raw || typeof raw !== "object") return null;
-  const correo = String(raw.correo ?? "").trim().toLowerCase();
+  const correo = String(raw.correo ?? "")
+    .trim()
+    .toLowerCase();
   // Sin correo no hay nada que triar: el bot arranca igual pero el módulo
   // queda inactivo hasta que el Owner Console lo complete.
   if (!correo) return null;
@@ -110,12 +125,16 @@ function normalizarAsistente(raw: any): AsistenteConfig | null {
   const intervalo = Number(raw.intervaloMinutos);
   const maximo = Number(raw.maxPorCorrida);
   const categorias =
-    raw.categorias && typeof raw.categorias === "object" && Object.keys(raw.categorias).length > 0
+    raw.categorias &&
+    typeof raw.categorias === "object" &&
+    Object.keys(raw.categorias).length > 0
       ? (raw.categorias as Record<string, string>)
       : CATEGORIAS_POR_DEFECTO;
 
   const proveedor: ProveedorCorreoTenant =
-    raw.proveedor === "microsoft" || raw.proveedor === "imap" ? raw.proveedor : "gmail";
+    raw.proveedor === "microsoft" || raw.proveedor === "imap"
+      ? raw.proveedor
+      : "gmail";
 
   return {
     correo,
@@ -123,10 +142,17 @@ function normalizarAsistente(raw: any): AsistenteConfig | null {
     whatsappAlertas: String(raw.whatsappAlertas ?? "").replace(/[^\d]/g, ""),
     // Bajo a propósito: la política es redactar por defecto, así que este
     // valor solo frena los correos que la IA realmente no entendió.
-    umbralConfianza: Number.isFinite(umbral) && umbral > 0 && umbral <= 1 ? umbral : 0.35,
-    horaReporte: /^\d{2}:\d{2}$/.test(String(raw.horaReporte)) ? String(raw.horaReporte) : "18:00",
-    intervaloMinutos: Number.isFinite(intervalo) && intervalo >= 1 ? Math.min(intervalo, 1440) : 10,
-    maxPorCorrida: Number.isFinite(maximo) && maximo >= 1 ? Math.min(maximo, 100) : 25,
+    umbralConfianza:
+      Number.isFinite(umbral) && umbral > 0 && umbral <= 1 ? umbral : 0.35,
+    horaReporte: /^\d{2}:\d{2}$/.test(String(raw.horaReporte))
+      ? String(raw.horaReporte)
+      : "18:00",
+    intervaloMinutos:
+      Number.isFinite(intervalo) && intervalo >= 1
+        ? Math.min(intervalo, 1440)
+        : 10,
+    maxPorCorrida:
+      Number.isFinite(maximo) && maximo >= 1 ? Math.min(maximo, 100) : 25,
     actuaComoTitular: raw.actuaComoTitular === true,
     nombreTitular: String(raw.nombreTitular ?? "").trim(),
     // Fail closed: a template may create drafts, but sending mail in the
@@ -147,7 +173,9 @@ const CONFIG_DIR = path.resolve(__dirname, "../../config/tenants");
 
 function cargarConfigsDeDisco(): TenantConfig[] {
   if (!fs.existsSync(CONFIG_DIR)) {
-    console.warn(`[tenants] No existe la carpeta de configuración: ${CONFIG_DIR}`);
+    console.warn(
+      `[tenants] No existe la carpeta de configuración: ${CONFIG_DIR}`,
+    );
     return [];
   }
   const slugsPermitidos = new Set(
@@ -162,7 +190,11 @@ function cargarConfigsDeDisco(): TenantConfig[] {
     .filter((f) => f.endsWith(".json") && !f.startsWith("_"))
     // Una app dedicada solo debe iniciar la sesión de WhatsApp de su propio
     // cliente. La app histórica puede declarar varios slugs separados por coma.
-    .filter((f) => slugsPermitidos.size === 0 || slugsPermitidos.has(path.basename(f, ".json").toLowerCase()));
+    .filter(
+      (f) =>
+        slugsPermitidos.size === 0 ||
+        slugsPermitidos.has(path.basename(f, ".json").toLowerCase()),
+    );
 
   const configs: TenantConfig[] = [];
   for (const archivo of archivos) {
@@ -178,11 +210,21 @@ function cargarConfigsDeDisco(): TenantConfig[] {
         json.slug = slugEsperado;
       }
       if (!json.nombre) {
-        console.error(`[tenants] ${archivo}: falta el campo "nombre", se omite este tenant.`);
+        console.error(
+          `[tenants] ${archivo}: falta el campo "nombre", se omite este tenant.`,
+        );
         continue;
       }
       const kind: BotKind =
-        json.kind === "assistant" || json.kind === "voice" ? json.kind : "messaging";
+        json.kind === "assistant" || json.kind === "voice"
+          ? json.kind
+          : "messaging";
+      const behavior: BotBehavior =
+        kind === "assistant"
+          ? "personal_assistant"
+          : json.behavior === "technical_support"
+            ? "technical_support"
+            : "sales";
 
       configs.push({
         slug: json.slug,
@@ -197,12 +239,21 @@ function cargarConfigsDeDisco(): TenantConfig[] {
         servicios: json.servicios ?? "",
         moneda: json.moneda ?? "USD",
         zonaHoraria: json.zonaHoraria ?? "America/Santo_Domingo",
-        adminEmails: (json.adminEmails ?? []).map((e: string) => e.trim().toLowerCase()).filter(Boolean),
+        adminEmails: (json.adminEmails ?? [])
+          .map((e: string) => e.trim().toLowerCase())
+          .filter(Boolean),
+        behavior,
+        policy: {
+          canQuoteByChat: json.policy?.canQuoteByChat !== false,
+          requireAppointmentConfirmation: true,
+          requireHumanForCommitments: true,
+        },
         companyInfo: String(json.companyInfo ?? ""),
         extraInstructions: String(json.extraInstructions ?? ""),
         promptExtra: json.promptExtra ?? "",
         googleCalendarId: json.googleCalendarId ?? "primary",
-        asistente: kind === "assistant" ? normalizarAsistente(json.asistente) : null,
+        asistente:
+          kind === "assistant" ? normalizarAsistente(json.asistente) : null,
       });
     } catch (err) {
       console.error(`[tenants] Error leyendo ${archivo}:`, err);
@@ -222,7 +273,10 @@ const CANAL_POR_KIND: Record<BotKind, string> = {
 };
 
 /** Escribe el canal del tenant, tolerando que la columna todavía no exista. */
-async function sincronizarCanal(tenantId: string, kind: BotKind): Promise<void> {
+async function sincronizarCanal(
+  tenantId: string,
+  kind: BotKind,
+): Promise<void> {
   const { error } = await supabase
     .from("tenants")
     .update({ canal: CANAL_POR_KIND[kind] })
@@ -233,13 +287,19 @@ async function sincronizarCanal(tenantId: string, kind: BotKind): Promise<void> 
   // corrido la migración del canal; el resto del bot funciona igual, solo que
   // su dashboard mostrará el panel por defecto hasta que se corra.
   const codigo = (error as { code?: string }).code;
-  if (codigo === "42703" || /column .*canal.* does not exist/i.test(error.message ?? "")) {
+  if (
+    codigo === "42703" ||
+    /column .*canal.* does not exist/i.test(error.message ?? "")
+  ) {
     console.warn(
       "[tenants] La columna `tenants.canal` no existe todavía: corre la migración para que el dashboard distinga el tipo de bot.",
     );
     return;
   }
-  console.error(`[tenants] No se pudo sincronizar el canal de ${tenantId}:`, error);
+  console.error(
+    `[tenants] No se pudo sincronizar el canal de ${tenantId}:`,
+    error,
+  );
 }
 
 let tenantsCache: Map<string, Tenant> | null = null;
@@ -266,7 +326,10 @@ export async function cargarTenants(): Promise<Map<string, Tenant>> {
       .eq("slug", cfg.slug)
       .maybeSingle();
     if (errorBusqueda) {
-      console.error(`[tenants] Error buscando el tenant "${cfg.slug}" en Supabase:`, errorBusqueda);
+      console.error(
+        `[tenants] Error buscando el tenant "${cfg.slug}" en Supabase:`,
+        errorBusqueda,
+      );
       continue;
     }
 
@@ -278,14 +341,22 @@ export async function cargarTenants(): Promise<Map<string, Tenant>> {
         .select("id")
         .single();
       if (errorInsert) {
-        console.error(`[tenants] Error creando el tenant "${cfg.slug}" en Supabase:`, errorInsert);
+        console.error(
+          `[tenants] Error creando el tenant "${cfg.slug}" en Supabase:`,
+          errorInsert,
+        );
         continue;
       }
       id = nuevo.id;
-      console.log(`[tenants] Tenant nuevo registrado en Supabase: ${cfg.slug} (${id})`);
+      console.log(
+        `[tenants] Tenant nuevo registrado en Supabase: ${cfg.slug} (${id})`,
+      );
     } else {
       // Mantener el nombre visible en Supabase sincronizado con el archivo.
-      await supabase.from("tenants").update({ nombre: cfg.nombre }).eq("id", id);
+      await supabase
+        .from("tenants")
+        .update({ nombre: cfg.nombre })
+        .eq("id", id);
     }
 
     // El dashboard del cliente decide qué panel mostrar leyendo `tenants.canal`
@@ -302,7 +373,10 @@ export async function cargarTenants(): Promise<Map<string, Tenant>> {
 }
 
 export function listarTenants(): Tenant[] {
-  if (!tenantsCache) throw new Error("Los tenants todavía no se han cargado (llama a cargarTenants() al iniciar).");
+  if (!tenantsCache)
+    throw new Error(
+      "Los tenants todavía no se han cargado (llama a cargarTenants() al iniciar).",
+    );
   return Array.from(tenantsCache.values());
 }
 
@@ -316,7 +390,9 @@ export function obtenerTenant(slug: string): Tenant | undefined {
  * el polling de estos.
  */
 export function listarTenantsAsistente(): Tenant[] {
-  return listarTenants().filter((t) => t.config.kind === "assistant" && t.config.asistente !== null);
+  return listarTenants().filter(
+    (t) => t.config.kind === "assistant" && t.config.asistente !== null,
+  );
 }
 
 /** ¿bot_activo de este tenant? Consulta fresca a Supabase (no cacheada: la
@@ -325,11 +401,18 @@ export async function tenantBotActivo(tenantId: string): Promise<boolean> {
   const override = estadoBotEnMemoria.get(tenantId);
   if (override !== undefined) return override;
 
-  const { data, error } = await supabase.from("tenants").select("bot_activo").eq("id", tenantId).maybeSingle();
+  const { data, error } = await supabase
+    .from("tenants")
+    .select("bot_activo")
+    .eq("id", tenantId)
+    .maybeSingle();
   if (error || !data) {
     // Fallar cerrado: un error de red/credenciales nunca debe permitir que un
     // bot apagado siga contestando por WhatsApp.
-    console.error(`[tenants] No se pudo leer bot_activo para ${tenantId}; se bloquean respuestas por seguridad.`, error);
+    console.error(
+      `[tenants] No se pudo leer bot_activo para ${tenantId}; se bloquean respuestas por seguridad.`,
+      error,
+    );
     return false;
   }
   const activo = Boolean(data.bot_activo);
@@ -356,14 +439,20 @@ export async function envioAutomaticoActivo(tenant: Tenant): Promise<boolean> {
   if (error) {
     // Ante un fallo de lectura se elige lo conservador: no enviar correo a
     // nombre del cliente por un problema de red.
-    console.error(`[tenants] No se pudo leer el envío automático de ${tenant.config.slug}:`, error);
+    console.error(
+      `[tenants] No se pudo leer el envío automático de ${tenant.config.slug}:`,
+      error,
+    );
     return false;
   }
   return data?.asistente_envio_automatico ?? porDefecto;
 }
 
 /** Cambia el interruptor de envío automático desde el Owner Console. */
-export async function establecerEnvioAutomatico(tenantId: string, activo: boolean): Promise<void> {
+export async function establecerEnvioAutomatico(
+  tenantId: string,
+  activo: boolean,
+): Promise<void> {
   const { error } = await supabase
     .from("tenants")
     .update({ asistente_envio_automatico: activo })
@@ -372,8 +461,14 @@ export async function establecerEnvioAutomatico(tenantId: string, activo: boolea
 }
 
 /** Enciende/apaga el bot de un tenant (llamado desde Stage AI Labs vía routes/config.ts). */
-export async function establecerBotActivo(tenantId: string, activo: boolean): Promise<void> {
-  const { error } = await supabase.from("tenants").update({ bot_activo: activo }).eq("id", tenantId);
+export async function establecerBotActivo(
+  tenantId: string,
+  activo: boolean,
+): Promise<void> {
+  const { error } = await supabase
+    .from("tenants")
+    .update({ bot_activo: activo })
+    .eq("id", tenantId);
   if (error) throw error;
   // Solo se publica después de que Supabase confirmó el cambio. Desde aquí,
   // todas las comprobaciones del worker ven el nuevo valor de inmediato.

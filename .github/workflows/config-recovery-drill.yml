@@ -1,0 +1,75 @@
+name: Config backups and recovery drill
+
+on:
+  schedule:
+    - cron: "17 5 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage-config-recovery
+  cancel-in-progress: false
+
+jobs:
+  backup-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+      - name: Create checksummed backups and simulate restore
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const crypto = require('crypto');
+          const root = 'backend/config/tenants';
+          const backupRoot = 'backend/config/backups';
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const files = fs.existsSync(root) ? fs.readdirSync(root).filter((name) => name.endsWith('.json')) : [];
+          if (!files.length) throw new Error('No tenant configurations found.');
+          const report = [];
+          for (const name of files) {
+            const raw = fs.readFileSync(path.join(root, name), 'utf8');
+            const config = JSON.parse(raw);
+            const slug = path.basename(name, '.json');
+            if (config.slug !== slug || !config.nombre || !config.nombreBot || !config.promptExtra) {
+              throw new Error(`Invalid required fields in ${name}`);
+            }
+            const snapshot = {
+              schemaVersion: 1,
+              id: stamp,
+              slug,
+              kind: 'backup',
+              label: 'Backup automático semanal',
+              tenantConfig: config,
+              checksum: crypto.createHash('sha256').update(JSON.stringify(config)).digest('hex'),
+              createdAt: new Date().toISOString(),
+            };
+            const restored = JSON.parse(JSON.stringify(snapshot.tenantConfig));
+            const restoredChecksum = crypto.createHash('sha256').update(JSON.stringify(restored)).digest('hex');
+            if (restoredChecksum !== snapshot.checksum) throw new Error(`Recovery drill checksum failed for ${slug}`);
+            const dir = path.join(backupRoot, slug);
+            fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(path.join(dir, `${stamp}.json`), `${JSON.stringify(snapshot, null, 2)}\n`);
+            report.push({ slug, ok: true, checksum: snapshot.checksum });
+          }
+          fs.mkdirSync('backend/config/recovery-reports', { recursive: true });
+          fs.writeFileSync('backend/config/recovery-reports/latest.json', `${JSON.stringify({ checkedAt: new Date().toISOString(), tenants: report }, null, 2)}\n`);
+          NODE
+      - name: Commit verified backups
+        shell: bash
+        run: |
+          if git diff --quiet -- backend/config/backups backend/config/recovery-reports; then
+            echo "No backup changes."
+            exit 0
+          fi
+          git config user.name "stage-recovery-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add backend/config/backups backend/config/recovery-reports
+          git commit -m "Backup semanal y simulacro de recuperación"
+          git push

@@ -22,6 +22,7 @@ import {
 import { generarRespuesta } from "./ia.js";
 import { conTimeout } from "../lib/timeout.js";
 import { responderComandoWhatsApp } from "./asistente/triaje.js";
+import { queueFailure, recordMetric } from "./operations.js";
 
 const logger = pino({ level: "silent" });
 
@@ -479,6 +480,7 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
   // herramientas atascado), el bot SIEMPRE continúa y responde algo. Nunca
   // se queda en "escribiendo…" para siempre.
   let respuesta: Awaited<ReturnType<typeof generarRespuesta>> | null = null;
+  const inicioIa = Date.now();
   try {
     respuesta = await conTimeout(
       generarRespuesta(tenant, cliente, historial, texto),
@@ -487,6 +489,7 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
     );
   } catch (err) {
     console.error(`[whatsapp][${tenant.config.slug}] Fallo/timeout generando respuesta para ${telefono}:`, err);
+    await queueFailure({ tenantSlug: tenant.config.slug, source: "ai", operation: "generar_respuesta_whatsapp", error: err, dedupeKey: `${tenant.config.slug}:ai:${waMessageId}` }).catch(() => undefined);
   }
 
   const textoRespuesta = (respuesta?.texto ?? "").trim();
@@ -518,6 +521,7 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
       await enviarAJid(tenant.id, remoteJid, textoFinal);
     } catch (err2) {
       console.error(`[whatsapp][${tenant.config.slug}] Segundo fallo enviando a ${telefono}:`, err2);
+      await queueFailure({ tenantSlug: tenant.config.slug, source: "whatsapp", operation: "enviar_respuesta", error: err2, dedupeKey: `${tenant.config.slug}:send:${waMessageId}` }).catch(() => undefined);
       return; // no guardamos como enviado algo que no salió
     }
   }
@@ -530,6 +534,12 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
     tokens_entrada: respuesta?.tokensEntrada,
     tokens_salida: respuesta?.tokensSalida,
   });
+  await recordMetric({
+    tenantSlug: tenant.config.slug,
+    source: "whatsapp",
+    latencyMs: Date.now() - inicioIa,
+    tokens: Number(respuesta?.tokensEntrada ?? 0) + Number(respuesta?.tokensSalida ?? 0),
+  }).catch(() => undefined);
 }
 
 /** Envía un mensaje de texto a un número (formato E.164) desde el WhatsApp de un tenant. */

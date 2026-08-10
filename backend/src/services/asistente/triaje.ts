@@ -6,6 +6,7 @@ import { obtenerProveedorCorreo, type CorreoEntrante, type EmailProvider } from 
 import { envioAutomaticoActivo } from "../../lib/tenants.js";
 import { describirMotivo, evaluarHeuristica, extraerDireccion } from "./heuristica.js";
 import { validarParaEnvio } from "./validacion.js";
+import { construirDestinoSeguro } from "./seguridad.js";
 
 /**
  * Orquestador del pipeline de triaje:
@@ -30,6 +31,23 @@ export interface ResumenCorrida {
   borradoresCreados: number;
   escaladosRevision: number;
   error: string | null;
+}
+
+const triajesEnCurso = new Map<string, Promise<ResumenCorrida>>();
+
+/**
+ * Nunca ejecuta dos corridas simultáneas para el mismo tenant. El scheduler,
+ * el botón manual y una petición repetida comparten la misma promesa, evitando
+ * respuestas/borradores duplicados antes de que actúe el UNIQUE de la base.
+ */
+export function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
+  const existente = triajesEnCurso.get(tenant.id);
+  if (existente) return existente;
+  const corrida = ejecutarTriajeInterno(tenant).finally(() => {
+    if (triajesEnCurso.get(tenant.id) === corrida) triajesEnCurso.delete(tenant.id);
+  });
+  triajesEnCurso.set(tenant.id, corrida);
+  return corrida;
 }
 
 /** Correos ya procesados, para no gastar tokens dos veces en el mismo mensaje. */
@@ -99,7 +117,20 @@ async function obtenerUltimaMarca(tenantId: string): Promise<Date | null> {
     .order("recibido_en", { ascending: false })
     .limit(1)
     .maybeSingle();
-  return data?.recibido_en ? new Date(data.recibido_en) : null;
+  if (!data?.recibido_en) return null;
+  // Volvemos a mirar una ventana solapada. Los proveedores listan primero lo
+  // más nuevo; sin solape, un fallo a mitad de lote podía hacer que mensajes
+  // más antiguos quedaran detrás de la marca y no se vieran nunca.
+  return new Date(new Date(data.recibido_en).getTime() - 24 * 60 * 60 * 1000);
+}
+
+async function finalizarCorreo(tenantId: string, mensajeId: string, cambios: Record<string, unknown>): Promise<void> {
+  const { error } = await supabase
+    .from("asistente_correos")
+    .update(cambios)
+    .eq("tenant_id", tenantId)
+    .eq("gmail_message_id", mensajeId);
+  if (error) throw error;
 }
 
 function alertaWhatsApp(
@@ -213,7 +244,7 @@ async function avisarEjecutivo(tenant: Tenant, texto: string): Promise<boolean> 
  * Procesa la bandeja de UN tenant. Es idempotente: los correos ya registrados
  * se saltan, así que puede correr tantas veces como haga falta.
  */
-export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
+async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
   const asistente = tenant.config.asistente;
   const resumen: ResumenCorrida = {
     revisados: 0,
@@ -231,6 +262,20 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
     return resumen;
   }
 
+  // Antes de registrar una ejecución comprobamos que existan credenciales.
+  // Así un asistente aún no conectado no llena la bitácora cada pocos minutos.
+  let proveedor: EmailProvider | null = null;
+  try {
+    proveedor = await obtenerProveedorCorreo(tenant);
+  } catch (error: any) {
+    resumen.error = error?.message ?? "No se pudo abrir la conexión de correo.";
+    return resumen;
+  }
+  if (!proveedor) {
+    resumen.error = "El correo no está conectado. Autoriza la cuenta desde el dashboard.";
+    return resumen;
+  }
+
   const { data: ejecucion } = await supabase
     .from("asistente_ejecuciones")
     .insert({ tenant_id: tenant.id })
@@ -238,16 +283,7 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
     .maybeSingle();
   const ejecucionId = ejecucion?.id as string | undefined;
 
-  // Fuera del try para poder cerrarlo en el finally: IMAP deja una conexión
-  // abierta que hay que soltar pase lo que pase.
-  let proveedor: EmailProvider | null = null;
-
   try {
-    proveedor = await obtenerProveedorCorreo(tenant);
-    if (!proveedor) {
-      throw new Error("El correo no está conectado. El ejecutivo debe autorizar su cuenta desde el dashboard.");
-    }
-
     // Primero se pone al día con lo que el titular ya resolvió; así el panel
     // refleja la realidad aunque no haya llegado ningún correo nuevo.
     resumen.reconciliados = await reconciliarPendientes(tenant, proveedor);
@@ -257,8 +293,13 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
     const enviarAutomatico = await envioAutomaticoActivo(tenant);
 
     const desde = await obtenerUltimaMarca(tenant.id);
-    const candidatos = await proveedor.listarNuevos(desde, asistente.maxPorCorrida);
-    const pendientes = await filtrarYaProcesados(tenant.id, candidatos);
+    // Pedimos una ventana mayor que el lote de trabajo y procesamos primero
+    // los pendientes más antiguos. Así una ráfaga de correos nuevos no deja
+    // los anteriores hambrientos para siempre.
+    const ventana = Math.min(Math.max(asistente.maxPorCorrida * 10, 100), 500);
+    const candidatos = await proveedor.listarNuevos(desde, ventana);
+    const noProcesados = await filtrarYaProcesados(tenant.id, candidatos);
+    const pendientes = noProcesados.slice(-asistente.maxPorCorrida).reverse();
 
     for (const id of pendientes) {
       const correo = await proveedor.obtener(id);
@@ -274,12 +315,20 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
         recibido_en: correo.recibidoEn,
       };
 
+      // Reserva el mensaje ANTES de cualquier efecto externo. Si el proceso
+      // cae justo después de enviar, la fila queda en "error" para revisión,
+      // pero jamás se vuelve a enviar una respuesta duplicada al reiniciar.
+      const { error: reservaError } = await supabase
+        .from("asistente_correos")
+        .insert({ ...fila, resultado: "error" });
+      if (reservaError?.code === "23505") continue;
+      if (reservaError) throw reservaError;
+
       // ---- Capa 1: filtro determinista (sin coste) -------------------------
       const heuristica = evaluarHeuristica(correo.encabezados);
       if (!heuristica.procesar) {
         resumen.descartadosHeuristica += 1;
-        await supabase.from("asistente_correos").insert({
-          ...fila,
+        await finalizarCorreo(tenant.id, correo.id, {
           filtrado_heuristica: true,
           motivo_descarte: describirMotivo(heuristica.motivo!),
           resultado: "omitido",
@@ -292,7 +341,7 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
       if (!clasificacion) {
         resumen.escaladosRevision += 1;
         const avisado = await avisarEjecutivo(tenant, alertaWhatsApp(tenant, correo, null));
-        await supabase.from("asistente_correos").insert({ ...fila, resultado: "error", alerta_enviada: avisado });
+        await finalizarCorreo(tenant.id, correo.id, { resultado: "error", alerta_enviada: avisado });
         await proveedor.etiquetar(correo.id, "revision");
         continue;
       }
@@ -306,6 +355,13 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
         requiere_accion: clasificacion.requiereAccion,
       });
 
+      // Avisos, recibos y mensajes informativos no merecen una respuesta. Esto
+      // evita ruido, auto-respuestas en bucle y correos incómodos al cliente.
+      if (!clasificacion.requiereAccion) {
+        await finalizarCorreo(tenant.id, correo.id, { ...fila, resultado: "omitido" });
+        continue;
+      }
+
       // ---- Capa 3: ¿enviar solo, o dejar borrador? -------------------------
       // Lo rutinario se responde Y SE ENVÍA, que es lo que de verdad vacía la
       // bandeja. El titular solo toca dos tipos de correo:
@@ -317,6 +373,7 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
       // para que revisar sea un clic y no volver a escribir.
       const noEntendio = clasificacion.confianza < asistente.umbralConfianza;
       const respuesta = clasificacion.borrador;
+      const destino = respuesta ? construirDestinoSeguro(correo, respuesta.cuerpo) : null;
 
       // Última barrera antes de mandar algo a nombre del titular: el prompt
       // prohíbe plantillas a medio llenar, pero un prompt no es una garantía.
@@ -329,20 +386,14 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
         );
       }
 
-      const debeDecidirElTitular = clasificacion.requiereDecisionPersonal || noEntendio || textoInseguro;
+      const debeDecidirElTitular =
+        clasificacion.requiereDecisionPersonal || noEntendio || textoInseguro || Boolean(respuesta && !destino);
 
-      if (!debeDecidirElTitular && respuesta && enviarAutomatico) {
-        const destino = {
-          hiloId: correo.hiloId,
-          para: respuesta.destinatario,
-          asunto: respuesta.asunto,
-          cuerpo: respuesta.cuerpo,
-          messageId: correo.messageId,
-        };
+      if (!debeDecidirElTitular && destino && enviarAutomatico) {
         try {
           await proveedor.enviar(destino);
           resumen.enviados += 1;
-          await supabase.from("asistente_correos").insert({ ...fila, resultado: "enviado" });
+          await finalizarCorreo(tenant.id, correo.id, { ...fila, resultado: "enviado" });
           await proveedor.etiquetar(correo.id, "enviado");
         } catch (err) {
           // Si el envío falla no perdemos el trabajo: se deja como borrador y
@@ -352,31 +403,28 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
           resumen.escaladosRevision += 1;
           const avisado = await avisarEjecutivo(
             tenant,
-            `⚠️ *${tenant.config.nombreBot}* — no pude enviar una respuesta\n\n*Para:* ${respuesta.destinatario}\n*Asunto:* ${correo.encabezados.subject}\n\nLa dejé como borrador en tu bandeja para que la envíes tú.`,
+            `⚠️ *${tenant.config.nombreBot}* — no pude enviar una respuesta\n\n*Para:* ${destino.para}\n*Asunto:* ${correo.encabezados.subject}\n\nLa dejé como borrador en tu bandeja para que la envíes tú.`,
           );
-          await supabase
-            .from("asistente_correos")
-            .insert({ ...fila, resultado: "revision", borrador_id: borradorId, alerta_enviada: avisado });
+          await finalizarCorreo(tenant.id, correo.id, {
+            ...fila,
+            resultado: "revision",
+            borrador_id: borradorId,
+            alerta_enviada: avisado,
+          });
           await proveedor.etiquetar(correo.id, "revision");
         }
         continue;
       }
 
-      if (!debeDecidirElTitular && respuesta) {
+      if (!debeDecidirElTitular && destino) {
         // Envío automático apagado para este cliente: se comporta como antes,
         // dejando todo en borradores.
-        const borradorId = await proveedor.crearBorrador({
-          hiloId: correo.hiloId,
-          para: respuesta.destinatario,
-          asunto: respuesta.asunto,
-          cuerpo: respuesta.cuerpo,
-          messageId: correo.messageId,
-        }).catch((err) => {
+        const borradorId = await proveedor.crearBorrador(destino).catch((err) => {
           console.error(`[asistente:${tenant.config.slug}] No se pudo crear el borrador de ${correo.id}:`, err);
           return null;
         });
         resumen.borradoresCreados += 1;
-        await supabase.from("asistente_correos").insert({ ...fila, resultado: "auto", borrador_id: borradorId });
+        await finalizarCorreo(tenant.id, correo.id, { ...fila, resultado: "auto", borrador_id: borradorId });
         await proveedor.etiquetar(correo.id, "borrador");
         continue;
       }
@@ -384,20 +432,14 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
       if (!debeDecidirElTitular) {
         // Clasificado sin problema, pero la IA no produjo texto que ofrecer.
         // No es motivo para molestar al titular: queda registrado y ya.
-        await supabase.from("asistente_correos").insert({ ...fila, resultado: "auto" });
+        await finalizarCorreo(tenant.id, correo.id, { ...fila, resultado: "auto" });
         continue;
       }
 
       // Requiere su criterio → NO se envía. Se le deja el borrador escrito y
       // se le avisa, para que solo tenga que revisarlo y darle a Enviar.
-      const borradorId = respuesta
-        ? await proveedor.crearBorrador({
-            hiloId: correo.hiloId,
-            para: respuesta.destinatario,
-            asunto: respuesta.asunto,
-            cuerpo: respuesta.cuerpo,
-            messageId: correo.messageId,
-          }).catch((err) => {
+      const borradorId = destino
+        ? await proveedor.crearBorrador(destino).catch((err) => {
             console.error(`[asistente:${tenant.config.slug}] No se pudo dejar el borrador de ${correo.id}:`, err);
             return null;
           })
@@ -408,9 +450,12 @@ export async function ejecutarTriaje(tenant: Tenant): Promise<ResumenCorrida> {
         tenant,
         alertaWhatsApp(tenant, correo, clasificacion, Boolean(borradorId), revisionTexto?.motivo ?? null),
       );
-      await supabase
-        .from("asistente_correos")
-        .insert({ ...fila, resultado: "revision", borrador_id: borradorId, alerta_enviada: avisado });
+      await finalizarCorreo(tenant.id, correo.id, {
+        ...fila,
+        resultado: "revision",
+        borrador_id: borradorId,
+        alerta_enviada: avisado,
+      });
       await proveedor.etiquetar(correo.id, "revision");
     }
   } catch (err: any) {

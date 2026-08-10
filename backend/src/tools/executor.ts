@@ -78,7 +78,7 @@ export async function ejecutarTool(
       }
 
       case "verificar_disponibilidad": {
-        const libre = await horarioDisponible(tenant.id, input.inicio_iso, input.duracion_minutos ?? 60);
+        const libre = await horarioDisponible(tenant, input.inicio_iso, input.duracion_minutos ?? 60);
         return {
           resultado: libre
             ? "El horario está DISPONIBLE."

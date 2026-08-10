@@ -12,11 +12,13 @@ import { reportesRouter } from "./routes/reportes.js";
 import { authRouter } from "./routes/auth.js";
 import { configRouter } from "./routes/config.js";
 import { asistenteRouter } from "./routes/asistente.js";
-import { iniciarTodasLasSesiones } from "./services/baileys.js";
-import { iniciarScheduler } from "./services/scheduler.js";
+import { detenerTodasLasSesiones, iniciarTodasLasSesiones, obtenerEstadoWhatsApp } from "./services/baileys.js";
+import { detenerScheduler, iniciarScheduler } from "./services/scheduler.js";
 
 const app = express();
 let dashboardProcess: ChildProcess | null = null;
+let httpServer: ReturnType<typeof app.listen> | null = null;
+let apagando = false;
 
 // Fly.io termina el TLS y reenvía por HTTP interno con X-Forwarded-Proto: al
 // confiar en el proxy, req.protocol refleja "https" real.
@@ -25,7 +27,19 @@ app.set("trust proxy", true);
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
-app.get("/health", (_req, res) => res.json({ ok: true, servicio: "stage-bot-template", tenants: listarTenants().length }));
+app.get("/health", (_req, res) => {
+  const estados = listarTenants().map((tenant) => obtenerEstadoWhatsApp(tenant.id));
+  res.json({
+    ok: true,
+    servicio: "stage-bot-template",
+    uptimeSeconds: Math.floor(process.uptime()),
+    tenants: estados.length,
+    whatsapp: {
+      conectados: estados.filter((estado) => estado?.conectado).length,
+      esperandoVinculacion: estados.filter((estado) => estado && !estado.conectado && estado.qrDataUrl).length,
+    },
+  });
+});
 
 // Todas las rutas de negocio van bajo /api/:slug/... — resolverTenant adjunta
 // req.tenant o responde 404 si el slug no existe.
@@ -88,9 +102,32 @@ function iniciarDashboardIntegrado() {
   });
   dashboardProcess.on("exit", (code, signal) => {
     console.error(`[dashboard] El proceso terminó (código ${code ?? "?"}, señal ${signal ?? "?"}).`);
-    process.exit(code ?? 1);
+    if (!apagando) process.exit(code ?? 1);
   });
 }
+
+async function apagar(signal: string): Promise<void> {
+  if (apagando) return;
+  apagando = true;
+  console.log(`[index] ${signal}: cerrando conexiones de forma segura…`);
+  detenerScheduler();
+  const limite = setTimeout(() => process.exit(1), 10_000);
+  limite.unref();
+
+  await Promise.allSettled([
+    detenerTodasLasSesiones(),
+    new Promise<void>((resolve) => {
+      if (!httpServer) return resolve();
+      httpServer.close(() => resolve());
+    }),
+  ]);
+  if (dashboardProcess && !dashboardProcess.killed) dashboardProcess.kill("SIGTERM");
+  clearTimeout(limite);
+  process.exit(0);
+}
+
+process.once("SIGTERM", () => void apagar("SIGTERM"));
+process.once("SIGINT", () => void apagar("SIGINT"));
 
 async function iniciar() {
   iniciarDashboardIntegrado();
@@ -103,7 +140,7 @@ async function iniciar() {
     console.log(`[index] Tenants cargados: ${[...tenants.values()].map((t) => t.config.slug).join(", ")}`);
   }
 
-  app.listen(config.port, () => {
+  httpServer = app.listen(config.port, () => {
     console.log(`🔧 Stage Bot Template — API en http://localhost:${config.port}`);
     console.log(`   Rutas por cliente: /api/<slug>/...  (ej. /api/${[...tenants.keys()][0] ?? "mi-cliente"}/whatsapp/status)`);
   });

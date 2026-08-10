@@ -1,6 +1,7 @@
 import { google, type calendar_v3 } from "googleapis";
 import { OAuth2Client } from "google-auth-library";
 import { config } from "../lib/config.js";
+import { cifradoDisponible, cifrar, descifrar } from "../lib/cripto.js";
 import { supabase } from "../lib/supabase.js";
 import type { Tenant } from "../lib/tenants.js";
 
@@ -30,6 +31,22 @@ interface TokensGuardados {
   refresh_token: string;
   access_token: string | null;
   expiry_date: number | null;
+}
+
+function protegerToken(valor: string | null | undefined): string | null {
+  if (!valor) return null;
+  if (!cifradoDisponible()) {
+    throw new Error("Falta CREDENCIALES_SECRET para guardar tokens OAuth de Google de forma segura.");
+  }
+  return cifrar(valor);
+}
+
+function leerToken(valor: string | null): string | null {
+  if (!valor) return null;
+  // Compatibilidad con tokens históricos en claro. La próxima autorización
+  // los reemplaza por valores cifrados sin bloquear al cliente actual.
+  if (valor.split(".").length !== 3) return valor;
+  return descifrar(valor);
 }
 
 function crearOAuthClient(redirectUri?: string): OAuth2Client | null {
@@ -77,11 +94,18 @@ export async function obtenerClienteOAuth(tenantId: string): Promise<OAuth2Clien
   });
   client.on("tokens", (nuevos) => {
     if (nuevos.access_token) {
-      supabase
-        .from("google_oauth_tokens")
-        .update({ access_token: nuevos.access_token, expiry_date: nuevos.expiry_date ?? null })
-        .eq("tenant_id", tenantId)
-        .then(undefined, () => {});
+      try {
+        const accessToken = protegerToken(nuevos.access_token);
+        supabase
+          .from("google_oauth_tokens")
+          .update({ access_token: accessToken, expiry_date: nuevos.expiry_date ?? null })
+          .eq("tenant_id", tenantId)
+          .then(({ error }) => {
+            if (error) console.error(`[oauth:${tenantId}] No se pudo guardar el token renovado:`, error);
+          });
+      } catch (error) {
+        console.error(`[oauth:${tenantId}] No se pudo cifrar el token renovado:`, error);
+      }
     }
   });
   return client;
@@ -111,8 +135,8 @@ export async function manejarCallbackOAuth(tenantId: string, code: string, redir
 
   const { error } = await supabase.from("google_oauth_tokens").upsert({
     tenant_id: tenantId,
-    refresh_token: tokens.refresh_token,
-    access_token: tokens.access_token ?? null,
+    refresh_token: protegerToken(tokens.refresh_token),
+    access_token: protegerToken(tokens.access_token),
     expiry_date: tokens.expiry_date ?? null,
     cuenta_email: email,
     actualizado_en: new Date().toISOString(),
@@ -133,7 +157,12 @@ async function obtenerTokensGuardados(tenantId: string): Promise<TokensGuardados
     .eq("tenant_id", tenantId)
     .maybeSingle();
   if (error) throw error;
-  return data as TokensGuardados | null;
+  if (!data) return null;
+  return {
+    refresh_token: leerToken(data.refresh_token) ?? "",
+    access_token: leerToken(data.access_token),
+    expiry_date: data.expiry_date,
+  };
 }
 
 async function obtenerClienteCalendar(tenantId: string): Promise<calendar_v3.Calendar | null> {
@@ -152,44 +181,81 @@ export interface NuevaCita {
   motivo: string;
 }
 
+const agendasEnCurso = new Map<string, Promise<void>>();
+
+function validarIntervalo(inicioISO: string, duracionMinutos: number): { inicio: string; fin: string } {
+  const inicioMs = new Date(inicioISO).getTime();
+  if (!Number.isFinite(inicioMs)) throw new Error("La fecha de la cita no es válida.");
+  if (!Number.isInteger(duracionMinutos) || duracionMinutos < 15 || duracionMinutos > 480) {
+    throw new Error("La duración debe estar entre 15 minutos y 8 horas.");
+  }
+  if (inicioMs < Date.now() - 5 * 60_000) throw new Error("No se puede agendar una cita en el pasado.");
+  if (inicioMs > Date.now() + 366 * 24 * 60 * 60_000) throw new Error("La cita no puede quedar a más de un año.");
+  return {
+    inicio: new Date(inicioMs).toISOString(),
+    fin: new Date(inicioMs + duracionMinutos * 60_000).toISOString(),
+  };
+}
+
 /** Crea el evento en Google Calendar (si está conectado) y lo espeja en `citas`. */
 export async function agendarCita(cita: NuevaCita): Promise<{ citaId: string; googleEventId: string | null }> {
-  const fin = new Date(new Date(cita.inicioISO).getTime() + cita.duracionMinutos * 60_000).toISOString();
   const { tenant } = cita;
+  const anterior = agendasEnCurso.get(tenant.id) ?? Promise.resolve();
+  let liberar!: () => void;
+  const turno = new Promise<void>((resolve) => { liberar = resolve; });
+  const encolado = anterior.then(() => turno);
+  agendasEnCurso.set(tenant.id, encolado);
+  await anterior;
 
-  let googleEventId: string | null = null;
+  try {
+    const { inicio, fin } = validarIntervalo(cita.inicioISO, cita.duracionMinutos);
+    if (!(await horarioDisponible(tenant, inicio, cita.duracionMinutos))) {
+      throw new Error("Ese horario ya no está disponible. Propón otro antes de confirmar.");
+    }
 
-  const calendar = await obtenerClienteCalendar(tenant.id);
-  if (calendar) {
-    const evento = await calendar.events.insert({
-      calendarId: tenant.config.googleCalendarId,
-      requestBody: {
-        summary: `${tenant.config.nombre}: ${cita.motivo} — ${cita.clienteNombre}`,
-        description: `Cliente: ${cita.clienteNombre}\nTeléfono: ${cita.clienteTelefono}\nMotivo: ${cita.motivo}\n(Agendado por el bot de WhatsApp)`,
-        start: { dateTime: cita.inicioISO, timeZone: tenant.config.zonaHoraria },
-        end: { dateTime: fin, timeZone: tenant.config.zonaHoraria },
-      },
-    });
-    googleEventId = evento.data.id ?? null;
-  } else {
-    console.warn(`[calendar] Google Calendar no está conectado para "${tenant.config.slug}": la cita solo se guarda en Supabase.`);
+    let googleEventId: string | null = null;
+
+    const calendar = await obtenerClienteCalendar(tenant.id);
+    if (calendar) {
+      const evento = await calendar.events.insert({
+        calendarId: tenant.config.googleCalendarId,
+        requestBody: {
+          summary: `${tenant.config.nombre}: ${String(cita.motivo ?? "Cita").slice(0, 200)} — ${cita.clienteNombre}`,
+          description: `Cliente: ${cita.clienteNombre}\nTeléfono: ${cita.clienteTelefono}\nMotivo: ${String(cita.motivo ?? "").slice(0, 1000)}\n(Agendado por el bot de WhatsApp)`,
+          start: { dateTime: inicio, timeZone: tenant.config.zonaHoraria },
+          end: { dateTime: fin, timeZone: tenant.config.zonaHoraria },
+        },
+      });
+      googleEventId = evento.data.id ?? null;
+    } else {
+      console.warn(`[calendar] Google Calendar no está conectado para "${tenant.config.slug}": la cita solo se guarda en Supabase.`);
+    }
+
+    const { data, error } = await supabase
+      .from("citas")
+      .insert({
+        tenant_id: tenant.id,
+        cliente_id: cita.clienteId,
+        google_event_id: googleEventId,
+        inicio,
+        fin,
+        motivo: String(cita.motivo ?? "").slice(0, 1000),
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      // Evita un evento huérfano si Google aceptó pero Supabase falló.
+      if (calendar && googleEventId) {
+        await calendar.events.delete({ calendarId: tenant.config.googleCalendarId, eventId: googleEventId }).catch(() => {});
+      }
+      throw error;
+    }
+    return { citaId: data.id, googleEventId };
+  } finally {
+    liberar();
+    if (agendasEnCurso.get(tenant.id) === encolado) agendasEnCurso.delete(tenant.id);
   }
-
-  const { data, error } = await supabase
-    .from("citas")
-    .insert({
-      tenant_id: tenant.id,
-      cliente_id: cita.clienteId,
-      google_event_id: googleEventId,
-      inicio: cita.inicioISO,
-      fin,
-      motivo: cita.motivo,
-    })
-    .select("id")
-    .single();
-
-  if (error) throw error;
-  return { citaId: data.id, googleEventId };
 }
 
 /** Estado de la conexión con Google Calendar de un tenant, para el dashboard. */
@@ -241,19 +307,30 @@ export async function verificarConexionCalendar(tenant: Tenant): Promise<{
 }
 
 /** Verifica si un horario está libre para ESTE tenant. */
-export async function horarioDisponible(tenantId: string, inicioISO: string, duracionMinutos: number): Promise<boolean> {
-  const inicio = new Date(inicioISO).toISOString();
-  const fin = new Date(new Date(inicioISO).getTime() + duracionMinutos * 60_000).toISOString();
+export async function horarioDisponible(tenant: Tenant, inicioISO: string, duracionMinutos: number): Promise<boolean> {
+  const { inicio, fin } = validarIntervalo(inicioISO, duracionMinutos);
 
   const { data, error } = await supabase
     .from("citas")
     .select("id")
-    .eq("tenant_id", tenantId)
+    .eq("tenant_id", tenant.id)
     .in("estado", ["confirmada", "reprogramada"])
     .lt("inicio", fin)
     .gt("fin", inicio)
     .limit(1);
 
   if (error) throw error;
-  return (data ?? []).length === 0;
+  if ((data ?? []).length > 0) return false;
+
+  const calendar = await obtenerClienteCalendar(tenant.id);
+  if (!calendar) return true;
+  const libres = await calendar.freebusy.query({
+    requestBody: {
+      timeMin: inicio,
+      timeMax: fin,
+      timeZone: tenant.config.zonaHoraria,
+      items: [{ id: tenant.config.googleCalendarId }],
+    },
+  });
+  return (libres.data.calendars?.[tenant.config.googleCalendarId]?.busy ?? []).length === 0;
 }

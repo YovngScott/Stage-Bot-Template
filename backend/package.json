@@ -19,19 +19,19 @@
     "cors": "^2.8.6",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
-    "google-auth-library": "^9.15.1",
-    "googleapis": "^144.0.0",
+    "google-auth-library": "^10.5.0",
+    "googleapis": "^174.0.1",
     "imapflow": "^1.4.9",
     "mailparser": "^3.9.14",
     "multer": "^2.2.0",
-    "node-cron": "^3.0.3",
+    "node-cron": "^4.6.0",
     "nodemailer": "^9.0.3",
     "pdfkit": "^0.15.1",
     "pino": "^10.3.1",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "tsx": "^4.19.0",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -40,7 +40,6 @@
     "@types/mailparser": "^3.4.6",
     "@types/multer": "^2.2.0",
     "@types/node": "^20.14.0",
-    "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^8.0.1",
     "@types/pdfkit": "^0.13.5",
     "@types/qrcode": "^1.5.6",
@@ -49,5 +48,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }

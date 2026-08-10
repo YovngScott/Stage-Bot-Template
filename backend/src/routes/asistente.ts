@@ -3,7 +3,7 @@ import { requiereAdmin } from "../lib/adminAuth.js";
 import { config } from "../lib/config.js";
 import { consumirEstado, generarEstado } from "../lib/oauthState.js";
 import { supabase } from "../lib/supabase.js";
-import { obtenerTenant } from "../lib/tenants.js";
+import { envioAutomaticoActivo, obtenerTenant } from "../lib/tenants.js";
 import { generarUrlAutorizacion } from "../services/calendar.js";
 import { NOMBRE_PROVEEDOR, obtenerProveedorCorreo } from "../services/asistente/proveedores/index.js";
 import {
@@ -91,6 +91,7 @@ asistenteRouter.get("/estado", requiereAdmin, async (req: Request, res: Response
 
   const proveedor = await obtenerProveedorCorreo(tenant);
   const perfil = proveedor ? await proveedor.perfil() : null;
+  const enviarAutomatico = await envioAutomaticoActivo(tenant);
   // IMAP deja un socket abierto solo por comprobar el estado.
   await proveedor?.cerrar?.().catch(() => {});
 
@@ -113,7 +114,7 @@ asistenteRouter.get("/estado", requiereAdmin, async (req: Request, res: Response
     horaReporte: asistente.horaReporte,
     actuaComoTitular: asistente.actuaComoTitular,
     nombreTitular: asistente.nombreTitular || tenant.config.nombre,
-    enviarAutomatico: asistente.enviarAutomatico,
+    enviarAutomatico,
     error: perfil ? null : `Sin conectar. Usa el botón "Conectar ${NOMBRE_PROVEEDOR[asistente.proveedor]}".`,
   });
 });

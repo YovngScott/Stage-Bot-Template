@@ -3,6 +3,7 @@ import type { Cliente, Mensaje } from "../lib/supabase.js";
 import type { Tenant } from "../lib/tenants.js";
 import { generarRespuesta as conGroq } from "./groq.js";
 import { generarRespuesta as conGemini } from "./gemini.js";
+import { guardScope } from "./scope-guard.js";
 
 /**
  * Punto único para generar la respuesta del bot. Elige el proveedor de IA
@@ -10,6 +11,11 @@ import { generarRespuesta as conGemini } from "./gemini.js";
  * respaldo automático si Groq alcanza su límite gratuito.
  */
 export async function generarRespuesta(tenant: Tenant, cliente: Cliente, historial: Mensaje[], mensaje: string) {
+  const scopeResponse = guardScope(tenant, mensaje);
+  if (scopeResponse) {
+    return { texto: scopeResponse, tokensEntrada: 0, tokensSalida: 0 };
+  }
+
   const respaldo = {
     texto: "Disculpa, se me complicó un poco procesar tu mensaje. Dame un momento y sigo contigo por aquí. 🙏",
     tokensEntrada: 0,

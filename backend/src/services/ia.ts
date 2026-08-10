@@ -3,21 +3,43 @@ import type { Cliente, Mensaje } from "../lib/supabase.js";
 import type { Tenant } from "../lib/tenants.js";
 import { generarRespuesta as conGroq } from "./groq.js";
 import { generarRespuesta as conGemini } from "./gemini.js";
-import { guardScope } from "./scope-guard.js";
+import {
+  guardOutput,
+  guardScope,
+  guardSensitiveAction,
+} from "./scope-guard.js";
 
 /**
  * Punto único para generar la respuesta del bot. Elige el proveedor de IA
  * según AI_PROVIDER: "groq" (por defecto) o "gemini", con Gemini como
  * respaldo automático si Groq alcanza su límite gratuito.
  */
-export async function generarRespuesta(tenant: Tenant, cliente: Cliente, historial: Mensaje[], mensaje: string) {
+export async function generarRespuesta(
+  tenant: Tenant,
+  cliente: Cliente,
+  historial: Mensaje[],
+  mensaje: string,
+) {
   const scopeResponse = guardScope(tenant, mensaje);
   if (scopeResponse) {
     return { texto: scopeResponse, tokensEntrada: 0, tokensSalida: 0 };
   }
+  const sensitiveResponse = guardSensitiveAction(tenant, mensaje);
+  if (sensitiveResponse)
+    return { texto: sensitiveResponse, tokensEntrada: 0, tokensSalida: 0 };
+
+  const secured = (result: {
+    texto: string;
+    tokensEntrada: number;
+    tokensSalida: number;
+  }) => ({
+    ...result,
+    texto: guardOutput(tenant, result.texto),
+  });
 
   const respaldo = {
-    texto: "Disculpa, se me complicó un poco procesar tu mensaje. Dame un momento y sigo contigo por aquí. 🙏",
+    texto:
+      "Disculpa, se me complicó un poco procesar tu mensaje. Dame un momento y sigo contigo por aquí. 🙏",
     tokensEntrada: 0,
     tokensSalida: 0,
   };
@@ -27,7 +49,7 @@ export async function generarRespuesta(tenant: Tenant, cliente: Cliente, histori
   // al cliente viendo "escribiendo…" sin respuesta.
   if (config.ai.provider === "gemini") {
     try {
-      return await conGemini(tenant, cliente, historial, mensaje);
+      return secured(await conGemini(tenant, cliente, historial, mensaje));
     } catch (err) {
       console.error("[ia] Gemini falló y no hay otro proveedor:", err);
       return respaldo;
@@ -35,12 +57,15 @@ export async function generarRespuesta(tenant: Tenant, cliente: Cliente, histori
   }
 
   try {
-    return await conGroq(tenant, cliente, historial, mensaje);
+    return secured(await conGroq(tenant, cliente, historial, mensaje));
   } catch (err) {
-    console.warn("[ia] Groq no estuvo disponible; intentando responder con Gemini:", err);
+    console.warn(
+      "[ia] Groq no estuvo disponible; intentando responder con Gemini:",
+      err,
+    );
     if (config.gemini.apiKey) {
       try {
-        return await conGemini(tenant, cliente, historial, mensaje);
+        return secured(await conGemini(tenant, cliente, historial, mensaje));
       } catch (err2) {
         console.error("[ia] Groq y Gemini fallaron ambos:", err2);
         return respaldo;

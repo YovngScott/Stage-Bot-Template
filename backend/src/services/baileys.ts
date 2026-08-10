@@ -48,6 +48,8 @@ interface Sesion {
   estado: EstadoWhatsApp;
   /** Una cola por chat conserva el orden sin bloquear a los demás clientes. */
   colas: Map<string, Promise<void>>;
+  /** Último mensaje observado por chat para agrupar textos enviados en ráfaga. */
+  ultimosMensajes: Map<string, string>;
   generacion: number;
   reconexiones: number;
   temporizadorReconexion: NodeJS.Timeout | null;
@@ -67,7 +69,13 @@ function authDirDe(tenant: Tenant): string {
 }
 
 function estadoInicial(): EstadoWhatsApp {
-  return { conectado: false, numero: null, qrDataUrl: null, pairingCode: null, actualizadoEn: Date.now() };
+  return {
+    conectado: false,
+    numero: null,
+    qrDataUrl: null,
+    pairingCode: null,
+    actualizadoEn: Date.now(),
+  };
 }
 
 export function obtenerEstadoWhatsApp(tenantId: string): EstadoWhatsApp | null {
@@ -82,14 +90,18 @@ export function obtenerEstadoWhatsApp(tenantId: string): EstadoWhatsApp | null {
 export async function desconectarWhatsApp(tenant: Tenant): Promise<void> {
   sesionesDesactivadas.add(tenant.id);
   const sesion = sesiones.get(tenant.id);
-  if (sesion?.temporizadorReconexion) clearTimeout(sesion.temporizadorReconexion);
+  if (sesion?.temporizadorReconexion)
+    clearTimeout(sesion.temporizadorReconexion);
   if (sesion?.sock) {
     try {
       // logout invalida la sesión remota en WhatsApp; end corta el socket aun
       // si WhatsApp no responde a tiempo.
       await sesion.sock.logout();
     } catch (err) {
-      console.warn(`[whatsapp:${tenant.config.slug}] No se pudo cerrar sesión remota:`, err);
+      console.warn(
+        `[whatsapp:${tenant.config.slug}] No se pudo cerrar sesión remota:`,
+        err,
+      );
     }
     try {
       await sesion.sock.end(undefined);
@@ -102,15 +114,25 @@ export async function desconectarWhatsApp(tenant: Tenant): Promise<void> {
 }
 
 /** Reconexión exponencial con jitter y una sola sesión vigente por tenant. */
-function programarReconexion(tenant: Tenant, generacion: number, reiniciarIntentos = false): void {
+function programarReconexion(
+  tenant: Tenant,
+  generacion: number,
+  reiniciarIntentos = false,
+): void {
   const sesion = sesiones.get(tenant.id);
-  if (!sesion || sesion.generacion !== generacion || sesionesDesactivadas.has(tenant.id)) return;
+  if (
+    !sesion ||
+    sesion.generacion !== generacion ||
+    sesionesDesactivadas.has(tenant.id)
+  )
+    return;
   if (sesion.temporizadorReconexion) return;
   if (reiniciarIntentos) sesion.reconexiones = 0;
 
   const intento = sesion.reconexiones++;
   const base = Math.min(3_000 * 2 ** Math.min(intento, 7), 5 * 60_000);
-  const espera = base + Math.floor(Math.random() * Math.min(base * 0.25, 5_000));
+  const espera =
+    base + Math.floor(Math.random() * Math.min(base * 0.25, 5_000));
   console.warn(
     `[whatsapp:${tenant.config.slug}] Reintentando conexión en ${Math.ceil(espera / 1000)}s (intento ${intento + 1}).`,
   );
@@ -119,20 +141,30 @@ function programarReconexion(tenant: Tenant, generacion: number, reiniciarIntent
     if (!actual || actual.generacion !== generacion) return;
     actual.temporizadorReconexion = null;
     iniciarWhatsApp(tenant).catch((error) => {
-      console.error(`[whatsapp:${tenant.config.slug}] Falló el reinicio de la sesión:`, error);
+      console.error(
+        `[whatsapp:${tenant.config.slug}] Falló el reinicio de la sesión:`,
+        error,
+      );
     });
   }, espera);
   sesion.temporizadorReconexion.unref();
 }
 
-export async function solicitarCodigoEmparejamiento(tenantId: string, numero: string): Promise<string> {
+export async function solicitarCodigoEmparejamiento(
+  tenantId: string,
+  numero: string,
+): Promise<string> {
   const sesion = sesiones.get(tenantId);
   if (!sesion?.sock) {
-    throw new Error("El servidor de WhatsApp de este cliente todavía no está listo. Espera unos segundos e intenta de nuevo.");
+    throw new Error(
+      "El servidor de WhatsApp de este cliente todavía no está listo. Espera unos segundos e intenta de nuevo.",
+    );
   }
   const limpio = numero.replace(/[^\d]/g, "");
   if (limpio.length < 10) {
-    throw new Error("Número inválido. Escribe el número completo con código de país, ej: 18498636074.");
+    throw new Error(
+      "Número inválido. Escribe el número completo con código de país, ej: 18498636074.",
+    );
   }
   const codigo = await sesion.sock.requestPairingCode(limpio);
   sesion.estado.pairingCode = codigo;
@@ -147,7 +179,8 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
   sesionesDesactivadas.delete(tenant.id);
   const previa = sesiones.get(tenant.id);
   if (previa?.iniciando) return;
-  if (previa?.temporizadorReconexion) clearTimeout(previa.temporizadorReconexion);
+  if (previa?.temporizadorReconexion)
+    clearTimeout(previa.temporizadorReconexion);
 
   const generacion = ++siguienteGeneracion;
   const sesion: Sesion = {
@@ -155,6 +188,7 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
     sock: null,
     estado: previa?.estado ?? estadoInicial(),
     colas: previa?.colas ?? new Map(),
+    ultimosMensajes: previa?.ultimosMensajes ?? new Map(),
     generacion,
     reconexiones: previa?.reconexiones ?? 0,
     temporizadorReconexion: null,
@@ -203,20 +237,29 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
 
     if (qr) {
       try {
-        s.estado.qrDataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 320 });
+        s.estado.qrDataUrl = await QRCode.toDataURL(qr, {
+          margin: 1,
+          width: 320,
+        });
       } catch (err) {
-        console.error(`[whatsapp:${tenant.config.slug}] No se pudo generar la imagen del QR:`, err);
+        console.error(
+          `[whatsapp:${tenant.config.slug}] No se pudo generar la imagen del QR:`,
+          err,
+        );
       }
       s.estado.conectado = false;
       s.estado.actualizadoEn = Date.now();
       if (Date.now() - s.ultimoLogQr >= 2 * 60_000) {
         s.ultimoLogQr = Date.now();
-        console.log(`[whatsapp:${tenant.config.slug}] Código QR disponible en el dashboard para vincular.`);
+        console.log(
+          `[whatsapp:${tenant.config.slug}] Código QR disponible en el dashboard para vincular.`,
+        );
       }
     }
 
     if (connection === "close") {
-      const statusCode = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
+      const statusCode = (lastDisconnect?.error as Boom | undefined)?.output
+        ?.statusCode;
       s.estado.conectado = false;
       s.estado.numero = null;
       s.estado.actualizadoEn = Date.now();
@@ -229,17 +272,24 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
       }
 
       if (statusCode === DisconnectReason.loggedOut) {
-        console.warn(`[whatsapp:${tenant.config.slug}] Sesión inválida (401). Borrando credenciales y reiniciando limpio…`);
+        console.warn(
+          `[whatsapp:${tenant.config.slug}] Sesión inválida (401). Borrando credenciales y reiniciando limpio…`,
+        );
         s.estado.qrDataUrl = null;
         s.estado.pairingCode = null;
         try {
           await fs.promises.rm(authDir, { recursive: true, force: true });
         } catch (err) {
-          console.error(`[whatsapp:${tenant.config.slug}] No se pudo borrar la carpeta de sesión:`, err);
+          console.error(
+            `[whatsapp:${tenant.config.slug}] No se pudo borrar la carpeta de sesión:`,
+            err,
+          );
         }
         programarReconexion(tenant, generacion, true);
       } else {
-        console.warn(`[whatsapp:${tenant.config.slug}] Conexión cerrada (código ${statusCode ?? "desconocido"}).`);
+        console.warn(
+          `[whatsapp:${tenant.config.slug}] Conexión cerrada (código ${statusCode ?? "desconocido"}).`,
+        );
         programarReconexion(tenant, generacion);
       }
     } else if (connection === "open") {
@@ -249,7 +299,9 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
       s.estado.qrDataUrl = null;
       s.estado.pairingCode = null;
       s.estado.actualizadoEn = Date.now();
-      console.log(`✅ [whatsapp:${tenant.config.slug}] Conectado — el bot ya puede recibir y responder mensajes.`);
+      console.log(
+        `✅ [whatsapp:${tenant.config.slug}] Conectado — el bot ya puede recibir y responder mensajes.`,
+      );
     }
   });
 
@@ -259,10 +311,26 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
       const s = sesiones.get(tenant.id);
       if (!s || s.generacion !== generacion) continue;
       const chatId = String(msg.key.remoteJid ?? msg.key.id ?? "desconocido");
+      s.ultimosMensajes.set(chatId, String(msg.key.id ?? ""));
       const cola = s.colas.get(chatId) ?? Promise.resolve();
       const siguiente = cola
-        .then(() => conTimeout(procesarMensajeEntrante(tenant, msg), 90000, "procesarMensajeEntrante"))
-        .catch((err) => console.error(`[whatsapp:${tenant.config.slug}] Error procesando mensaje entrante:`, err))
+        .then(() =>
+          conTimeout(
+            procesarMensajeEntrante(
+              tenant,
+              msg,
+              () => s.ultimosMensajes.get(chatId) === String(msg.key.id ?? ""),
+            ),
+            90000,
+            "procesarMensajeEntrante",
+          ),
+        )
+        .catch((err) =>
+          console.error(
+            `[whatsapp:${tenant.config.slug}] Error procesando mensaje entrante:`,
+            err,
+          ),
+        )
         .finally(() => {
           if (s.colas.get(chatId) === siguiente) s.colas.delete(chatId);
         });
@@ -272,10 +340,15 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
 }
 
 /** Arranca las sesiones de WhatsApp de TODOS los tenants configurados. */
-export async function iniciarTodasLasSesiones(tenants: Tenant[]): Promise<void> {
+export async function iniciarTodasLasSesiones(
+  tenants: Tenant[],
+): Promise<void> {
   for (const tenant of tenants) {
     iniciarWhatsApp(tenant).catch((err) => {
-      console.error(`[whatsapp:${tenant.config.slug}] Error iniciando la conexión (el servidor sigue activo):`, err);
+      console.error(
+        `[whatsapp:${tenant.config.slug}] Error iniciando la conexión (el servidor sigue activo):`,
+        err,
+      );
     });
   }
 }
@@ -285,7 +358,8 @@ export async function detenerTodasLasSesiones(): Promise<void> {
   const cierres: Promise<unknown>[] = [];
   for (const [tenantId, sesion] of sesiones) {
     sesionesDesactivadas.add(tenantId);
-    if (sesion.temporizadorReconexion) clearTimeout(sesion.temporizadorReconexion);
+    if (sesion.temporizadorReconexion)
+      clearTimeout(sesion.temporizadorReconexion);
     if (sesion.sock) {
       cierres.push(
         sesion.sock.end(undefined).catch(() => {
@@ -320,7 +394,8 @@ const PERSONA =
  * técnico" no. Solo cuentan precedidos de "con un/una/el/la…", que es lo que
  * distingue pedir a una PERSONA de pedir un SERVICIO.
  */
-const PERSONA_AMBIGUA = /\bcon (un|una|el|la|algun|alguna)\s+(tecnic[oa]|especialista|mecanic[oa]|recepcionista)\b/;
+const PERSONA_AMBIGUA =
+  /\bcon (un|una|el|la|algun|alguna)\s+(tecnic[oa]|especialista|mecanic[oa]|recepcionista)\b/;
 
 /** Verbos de petición, con sus conjugaciones frecuentes ("pásame", "me pasas"). */
 const ACCION =
@@ -342,15 +417,25 @@ function solicitaAtencionHumana(texto: string): boolean {
   return PERSONA.test(t) && ACCION.test(t);
 }
 
-async function enviarAJid(tenantId: string, remoteJid: string, texto: string): Promise<void> {
+async function enviarAJid(
+  tenantId: string,
+  remoteJid: string,
+  texto: string,
+): Promise<void> {
   const sesion = sesiones.get(tenantId);
   if (!sesion?.sock || !sesion.estado.conectado) {
-    throw new Error("WhatsApp perdió la conexión antes de enviar la respuesta.");
+    throw new Error(
+      "WhatsApp perdió la conexión antes de enviar la respuesta.",
+    );
   }
   await sesion.sock.sendMessage(remoteJid, { text: texto });
 }
 
-async function enviarAJidConReintento(tenantId: string, remoteJid: string, texto: string): Promise<void> {
+async function enviarAJidConReintento(
+  tenantId: string,
+  remoteJid: string,
+  texto: string,
+): Promise<void> {
   try {
     await enviarAJid(tenantId, remoteJid, texto);
   } catch (primerError) {
@@ -360,7 +445,10 @@ async function enviarAJidConReintento(tenantId: string, remoteJid: string, texto
       // esperábamos y el anterior ya no sería válido.
       await enviarAJid(tenantId, remoteJid, texto);
     } catch (segundoError) {
-      throw new AggregateError([primerError, segundoError], "WhatsApp no pudo enviar la respuesta tras dos intentos.");
+      throw new AggregateError(
+        [primerError, segundoError],
+        "WhatsApp no pudo enviar la respuesta tras dos intentos.",
+      );
     }
   }
 }
@@ -369,30 +457,56 @@ async function enviarAJidConReintento(tenantId: string, remoteJid: string, texto
  * Responde en el número de alertas de un bot "assistant": nunca IA de ventas,
  * solo un resumen del día bajo demanda (ver responderComandoWhatsApp).
  */
-async function manejarMensajeAsistente(tenant: Tenant, cliente: { id: string }, remoteJid: string, texto: string): Promise<void> {
+async function manejarMensajeAsistente(
+  tenant: Tenant,
+  cliente: { id: string },
+  remoteJid: string,
+  texto: string,
+): Promise<void> {
   let respuesta: string;
   try {
     respuesta = await responderComandoWhatsApp(tenant, texto);
   } catch (err) {
-    console.error(`[whatsapp:${tenant.config.slug}] Error respondiendo comando de asistente:`, err);
-    respuesta = "No pude generar el resumen ahora mismo. Intenta de nuevo en un momento.";
+    console.error(
+      `[whatsapp:${tenant.config.slug}] Error respondiendo comando de asistente:`,
+      err,
+    );
+    respuesta =
+      "No pude generar el resumen ahora mismo. Intenta de nuevo en un momento.";
   }
 
   try {
     await enviarAJidConReintento(tenant.id, remoteJid, respuesta);
   } catch (err) {
-    console.error(`[whatsapp:${tenant.config.slug}] No se pudo enviar la respuesta del asistente:`, err);
+    console.error(
+      `[whatsapp:${tenant.config.slug}] No se pudo enviar la respuesta del asistente:`,
+      err,
+    );
     return; // no guardamos como enviado algo que no salió
   }
 
-  await guardarMensaje({ tenant_id: tenant.id, cliente_id: cliente.id, rol: "bot", contenido: respuesta });
+  await guardarMensaje({
+    tenant_id: tenant.id,
+    cliente_id: cliente.id,
+    rol: "bot",
+    contenido: respuesta,
+  });
 }
 
-async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> {
+async function procesarMensajeEntrante(
+  tenant: Tenant,
+  msg: any,
+  esUltimoMensaje: () => boolean,
+): Promise<void> {
   if (!msg.message || msg.key.fromMe) return;
 
   const remoteJid: string | undefined = msg.key.remoteJid;
-  if (!remoteJid || remoteJid.endsWith("@g.us") || remoteJid === "status@broadcast") return;
+  if (
+    !remoteJid ||
+    remoteJid.endsWith("@g.us") ||
+    remoteJid === "status@broadcast"
+  )
+    return;
 
   const texto: string | undefined =
     msg.message.conversation ??
@@ -406,17 +520,12 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
   if (await mensajeYaProcesado(tenant.id, waMessageId)) return;
 
   const jidIdentidad: string = remoteJid.endsWith("@lid")
-    ? (msg.key.senderPn as string | undefined) ?? remoteJid
+    ? ((msg.key.senderPn as string | undefined) ?? remoteJid)
     : remoteJid;
   const telefono = "+" + jidIdentidad.split("@")[0].split(":")[0];
   const nombre: string | undefined = msg.pushName || undefined;
 
   const cliente = await obtenerOCrearCliente(tenant.id, telefono, nombre);
-  const historial = await obtenerHistorial(cliente.id, {
-    desde: cliente.solicito_humano_en,
-    hasta: cliente.atendido_en,
-  });
-
   const idGuardado = await guardarMensaje({
     tenant_id: tenant.id,
     cliente_id: cliente.id,
@@ -425,6 +534,22 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
     wa_message_id: waMessageId,
   });
   if (idGuardado === null) return; // ya procesado por otro worker
+
+  // Una persona suele enviar "Hola" + "quiero una cita" + "mañana" como
+  // varios mensajes. Esperamos una ventana corta: los anteriores se guardan,
+  // pero solo el último genera respuesta usando todos como contexto.
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  if (!esUltimoMensaje()) return;
+
+  const historialCompleto = await obtenerHistorial(cliente.id, {
+    desde: cliente.solicito_humano_en,
+    hasta: cliente.atendido_en,
+  });
+  const historial =
+    historialCompleto.at(-1)?.rol === "cliente" &&
+    historialCompleto.at(-1)?.contenido === texto
+      ? historialCompleto.slice(0, -1)
+      : historialCompleto;
 
   // Interruptor general (Stage AI Labs → Client Manager → apagar/encender
   // este tenant, ej. por falta de pago). Seguimos guardando los mensajes
@@ -447,7 +572,9 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
   // retoma para no dejarlo abandonado. (La IA ya no puede meter al cliente en
   // este estado por su cuenta — ver executor.ts; así el bot no se auto-silencia.)
   if (cliente.estado === "requiere_humano") {
-    const desde = cliente.solicito_humano_en ? new Date(cliente.solicito_humano_en).getTime() : 0;
+    const desde = cliente.solicito_humano_en
+      ? new Date(cliente.solicito_humano_en).getTime()
+      : 0;
     const VENTANA_HUMANO_MS = 3 * 60 * 60 * 1000;
     if (desde && Date.now() - desde < VENTANA_HUMANO_MS) return; // dentro de la ventana: lo maneja un humano
     // fuera de la ventana: el bot retoma la conversación.
@@ -462,7 +589,9 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
 
   if (solicitaAtencionHumana(texto)) {
     await actualizarEstadoCliente(tenant.id, cliente.id, "requiere_humano");
-    const respuestaTransferencia = RESPUESTA_TRANSFERENCIA_TPL(tenant.config.nombre);
+    const respuestaTransferencia = RESPUESTA_TRANSFERENCIA_TPL(
+      tenant.config.nombre,
+    );
     if (!(await tenantBotActivo(tenant.id))) return;
     await enviarAJidConReintento(tenant.id, remoteJid, respuestaTransferencia);
     await guardarMensaje({
@@ -488,8 +617,17 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
       "generarRespuesta",
     );
   } catch (err) {
-    console.error(`[whatsapp][${tenant.config.slug}] Fallo/timeout generando respuesta para ${telefono}:`, err);
-    await queueFailure({ tenantSlug: tenant.config.slug, source: "ai", operation: "generar_respuesta_whatsapp", error: err, dedupeKey: `${tenant.config.slug}:ai:${waMessageId}` }).catch(() => undefined);
+    console.error(
+      `[whatsapp][${tenant.config.slug}] Fallo/timeout generando respuesta para ${telefono}:`,
+      err,
+    );
+    await queueFailure({
+      tenantSlug: tenant.config.slug,
+      source: "ai",
+      operation: "generar_respuesta_whatsapp",
+      error: err,
+      dedupeKey: `${tenant.config.slug}:ai:${waMessageId}`,
+    }).catch(() => undefined);
   }
 
   const textoRespuesta = (respuesta?.texto ?? "").trim();
@@ -501,7 +639,8 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
   // indicador "escribiendo…"): responder al instante hace que WhatsApp marque
   // la cuenta como bot. 5s es suficiente para verse natural sin hacer esperar.
   const esperaMs = 5000;
-  if (sock) await sock.sendPresenceUpdate("composing", remoteJid).catch(() => {});
+  if (sock)
+    await sock.sendPresenceUpdate("composing", remoteJid).catch(() => {});
   await new Promise((r) => setTimeout(r, esperaMs));
 
   // Revisa de nuevo justo antes de enviar. Si el owner apaga el bot mientras
@@ -515,13 +654,25 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
   try {
     await enviarAJid(tenant.id, remoteJid, textoFinal);
   } catch (err) {
-    console.error(`[whatsapp][${tenant.config.slug}] Error enviando respuesta a ${telefono}, reintentando:`, err);
+    console.error(
+      `[whatsapp][${tenant.config.slug}] Error enviando respuesta a ${telefono}, reintentando:`,
+      err,
+    );
     try {
       await new Promise((r) => setTimeout(r, 1500));
       await enviarAJid(tenant.id, remoteJid, textoFinal);
     } catch (err2) {
-      console.error(`[whatsapp][${tenant.config.slug}] Segundo fallo enviando a ${telefono}:`, err2);
-      await queueFailure({ tenantSlug: tenant.config.slug, source: "whatsapp", operation: "enviar_respuesta", error: err2, dedupeKey: `${tenant.config.slug}:send:${waMessageId}` }).catch(() => undefined);
+      console.error(
+        `[whatsapp][${tenant.config.slug}] Segundo fallo enviando a ${telefono}:`,
+        err2,
+      );
+      await queueFailure({
+        tenantSlug: tenant.config.slug,
+        source: "whatsapp",
+        operation: "enviar_respuesta",
+        error: err2,
+        dedupeKey: `${tenant.config.slug}:send:${waMessageId}`,
+      }).catch(() => undefined);
       return; // no guardamos como enviado algo que no salió
     }
   }
@@ -538,17 +689,24 @@ async function procesarMensajeEntrante(tenant: Tenant, msg: any): Promise<void> 
     tenantSlug: tenant.config.slug,
     source: "whatsapp",
     latencyMs: Date.now() - inicioIa,
-    tokens: Number(respuesta?.tokensEntrada ?? 0) + Number(respuesta?.tokensSalida ?? 0),
+    tokens:
+      Number(respuesta?.tokensEntrada ?? 0) +
+      Number(respuesta?.tokensSalida ?? 0),
   }).catch(() => undefined);
 }
 
 /** Envía un mensaje de texto a un número (formato E.164) desde el WhatsApp de un tenant. */
-export async function enviarMensajeTexto(tenantId: string, telefono: string, texto: string): Promise<void> {
+export async function enviarMensajeTexto(
+  tenantId: string,
+  telefono: string,
+  texto: string,
+): Promise<void> {
   // El apagado debe ser absoluto: también bloquea recordatorios, confirmaciones
   // y cualquier envío iniciado fuera del manejador de mensajes entrantes.
   if (!(await tenantBotActivo(tenantId))) return;
   const sesion = sesiones.get(tenantId);
-  if (!sesion?.sock) throw new Error("WhatsApp no está conectado todavía para este cliente.");
+  if (!sesion?.sock)
+    throw new Error("WhatsApp no está conectado todavía para este cliente.");
   // El socket existe desde que arranca el intento de conexión, pero mientras
   // nadie escanee el QR no hay sesión: enviar ahí revienta dentro de Baileys
   // con un TypeError ilegible. Mejor decir qué falta de verdad.

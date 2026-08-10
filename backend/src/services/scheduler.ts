@@ -4,7 +4,10 @@ import { config } from "../lib/config.js";
 import { listarTenants, listarTenantsAsistente } from "../lib/tenants.js";
 import { enviarMensajeTexto } from "./baileys.js";
 import { notificarEmpleados } from "./notificaciones.js";
-import { formatearReporteTexto, generarDatosReporteDiario } from "./reportes.js";
+import {
+  formatearReporteTexto,
+  generarDatosReporteDiario,
+} from "./reportes.js";
 import { ejecutarTriaje } from "./asistente/triaje.js";
 
 function horaACronDiario(hhmm: string): string {
@@ -22,8 +25,12 @@ export function iniciarScheduler(): void {
     horaACronDiario(config.reportes.horaRecordatorioCitas),
     () => {
       for (const tenant of listarTenants()) {
-        enviarRecordatoriosCitas(tenant.id, tenant.config.zonaHoraria).catch((err) =>
-          console.error(`[scheduler:${tenant.config.slug}] Error enviando recordatorios de citas:`, err),
+        enviarRecordatoriosCitas(tenant.id, tenant.config.zonaHoraria).catch(
+          (err) =>
+            console.error(
+              `[scheduler:${tenant.config.slug}] Error enviando recordatorios de citas:`,
+              err,
+            ),
         );
       }
     },
@@ -36,9 +43,15 @@ export function iniciarScheduler(): void {
       for (const tenant of listarTenants()) {
         try {
           const datos = await generarDatosReporteDiario(tenant);
-          await notificarEmpleados(tenant.id, formatearReporteTexto(tenant, datos));
+          await notificarEmpleados(
+            tenant.id,
+            formatearReporteTexto(tenant, datos),
+          );
         } catch (err) {
-          console.error(`[scheduler:${tenant.config.slug}] Error enviando el reporte diario:`, err);
+          console.error(
+            `[scheduler:${tenant.config.slug}] Error enviando el reporte diario:`,
+            err,
+          );
         }
       }
     },
@@ -73,7 +86,10 @@ function programarTriajeAsistentes(): void {
 
   for (const [minutos, tenants] of porIntervalo) {
     // node-cron no acepta "*/90": por encima de 59 minutos lo alineamos a la hora.
-    const expresion = minutos >= 60 ? `0 */${Math.floor(minutos / 60)} * * *` : `*/${minutos} * * * *`;
+    const expresion =
+      minutos >= 60
+        ? `0 */${Math.floor(minutos / 60)} * * *`
+        : `*/${minutos} * * * *`;
 
     cron.schedule(
       expresion,
@@ -91,7 +107,10 @@ function programarTriajeAsistentes(): void {
               );
             }
           } catch (err) {
-            console.error(`[scheduler:${tenant.config.slug}] Error en el triaje de correo:`, err);
+            console.error(
+              `[scheduler:${tenant.config.slug}] Error en el triaje de correo:`,
+              err,
+            );
           }
         }
       },
@@ -105,24 +124,32 @@ function programarTriajeAsistentes(): void {
 }
 
 /** Le escribe a cada cliente de un tenant con cita mañana, recordándole la hora. */
-async function enviarRecordatoriosCitas(tenantId: string, zonaHoraria: string): Promise<void> {
-  const manana = new Date();
-  manana.setDate(manana.getDate() + 1);
-  const inicio = new Date(manana);
-  inicio.setHours(0, 0, 0, 0);
-  const fin = new Date(manana);
-  fin.setHours(23, 59, 59, 999);
+async function enviarRecordatoriosCitas(
+  tenantId: string,
+  zonaHoraria: string,
+): Promise<void> {
+  const ahora = new Date();
+  const limite = new Date(ahora.getTime() + 48 * 60 * 60_000);
+  const dateKey = (date: Date) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: zonaHoraria,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(date);
+  const mananaLocal = dateKey(new Date(ahora.getTime() + 24 * 60 * 60_000));
 
   const { data, error } = await supabase
     .from("citas")
     .select("inicio, motivo, clientes(nombre, telefono)")
     .eq("tenant_id", tenantId)
-    .gte("inicio", inicio.toISOString())
-    .lte("inicio", fin.toISOString())
+    .gte("inicio", ahora.toISOString())
+    .lte("inicio", limite.toISOString())
     .in("estado", ["confirmada", "reprogramada"]);
   if (error) throw error;
 
   for (const cita of (data ?? []) as any[]) {
+    if (dateKey(new Date(cita.inicio)) !== mananaLocal) continue;
     const telefono: string | undefined = cita.clientes?.telefono;
     if (!telefono) continue;
 

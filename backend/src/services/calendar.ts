@@ -16,7 +16,6 @@ const SCOPES_OAUTH = ["https://www.googleapis.com/auth/calendar", "https://www.g
 const SCOPES_ASISTENTE = [
   "https://www.googleapis.com/auth/gmail.readonly",
   "https://www.googleapis.com/auth/gmail.compose",
-  "https://www.googleapis.com/auth/gmail.labels",
 ];
 
 /**

@@ -3,7 +3,6 @@ import { obtenerClienteOAuth } from "../../calendar.js";
 import {
   conReintentos,
   construirMime,
-  NOMBRE_ETIQUETA,
   type CorreoEntrante,
   type EmailProvider,
   type EstadoRespuesta,
@@ -20,9 +19,6 @@ import {
  * Ingesta por consultas programadas (list + get) en vez de webhooks: evita
  * depender de Pub/Sub y mantiene el consumo de cuota predecible.
  */
-
-/** Etiqueta padre bajo la que cuelgan las marcas del asistente. */
-const ETIQUETA_BASE = "Asistente Stage";
 
 function leerEncabezado(headers: gmail_v1.Schema$MessagePartHeader[] | undefined, nombre: string): string | undefined {
   return headers?.find((h) => h.name?.toLowerCase() === nombre.toLowerCase())?.value ?? undefined;
@@ -51,8 +47,6 @@ function extraerCuerpo(payload: gmail_v1.Schema$MessagePart | undefined): string
 
 class ProveedorGmail implements EmailProvider {
   readonly proveedor = "gmail" as const;
-  /** id de cada etiqueta ya resuelta, para no volver a consultarlas en la misma corrida. */
-  private etiquetas = new Map<EtiquetaAsistente, string | null>();
 
   constructor(private readonly gmail: gmail_v1.Gmail) {}
 
@@ -139,17 +133,12 @@ class ProveedorGmail implements EmailProvider {
   }
 
   async etiquetar(correoId: string, etiqueta: EtiquetaAsistente): Promise<void> {
-    try {
-      const id = await this.asegurarEtiqueta(etiqueta);
-      if (!id) return;
-      await conReintentos(
-        () => this.gmail.users.messages.modify({ userId: "me", id: correoId, requestBody: { addLabelIds: [id] } }),
-        "gmail",
-      );
-    } catch (err) {
-      // Etiquetar es cosmético: si falla, el triaje debe continuar igual.
-      console.warn(`[asistente:gmail] No se pudo etiquetar ${correoId}:`, err);
-    }
+    // El seguimiento fiable vive en Supabase. Aplicar etiquetas al mensaje
+    // exigiría `gmail.modify`, un permiso mucho más amplio para una función
+    // puramente cosmética. Conservamos el método como no-op para que Gmail use
+    // solo lectura + composición y el resto del pipeline siga agnóstico.
+    void correoId;
+    void etiqueta;
   }
 
   async estadoRespuesta(ref: { borradorId: string; hiloId: string }): Promise<EstadoRespuesta> {
@@ -186,33 +175,6 @@ class ProveedorGmail implements EmailProvider {
     }
   }
 
-  /** Busca la etiqueta `Asistente Stage/<nombre>` y la crea si no existe. */
-  private async asegurarEtiqueta(etiqueta: EtiquetaAsistente): Promise<string | null> {
-    if (this.etiquetas.has(etiqueta)) return this.etiquetas.get(etiqueta)!;
-
-    const nombre = `${ETIQUETA_BASE}/${NOMBRE_ETIQUETA[etiqueta]}`;
-    let id: string | null = null;
-    try {
-      const existentes = await conReintentos(() => this.gmail.users.labels.list({ userId: "me" }), "gmail");
-      id = existentes.data.labels?.find((l) => l.name === nombre)?.id ?? null;
-
-      if (!id) {
-        const creada = await conReintentos(
-          () =>
-            this.gmail.users.labels.create({
-              userId: "me",
-              requestBody: { name: nombre, labelListVisibility: "labelShow", messageListVisibility: "show" },
-            }),
-          "gmail",
-        );
-        id = creada.data.id ?? null;
-      }
-    } catch (err) {
-      console.warn(`[asistente:gmail] No se pudo asegurar la etiqueta "${nombre}":`, err);
-    }
-    this.etiquetas.set(etiqueta, id);
-    return id;
-  }
 }
 
 /** Construye el adaptador de Gmail, o null si el tenant no tiene Google conectado. */

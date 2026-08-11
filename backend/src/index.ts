@@ -15,6 +15,7 @@ import { asistenteRouter } from "./routes/asistente.js";
 import { operationsRouter } from "./routes/operations.js";
 import { detenerTodasLasSesiones, iniciarTodasLasSesiones, obtenerEstadoWhatsApp } from "./services/baileys.js";
 import { detenerScheduler, iniciarScheduler } from "./services/scheduler.js";
+import { startOperationWorker, stopOperationWorker } from "./services/operation-worker.js";
 
 const app = express();
 let dashboardProcess: ChildProcess | null = null;
@@ -113,6 +114,7 @@ async function apagar(signal: string): Promise<void> {
   apagando = true;
   console.log(`[index] ${signal}: cerrando conexiones de forma segura…`);
   detenerScheduler();
+  stopOperationWorker();
   const limite = setTimeout(() => process.exit(1), 10_000);
   limite.unref();
 
@@ -151,6 +153,7 @@ async function iniciar() {
   // completo: /health y el resto de tenants deben seguir vivos.
   await iniciarTodasLasSesiones([...tenants.values()]);
   iniciarScheduler();
+  startOperationWorker();
 }
 
 iniciar().catch((err) => {

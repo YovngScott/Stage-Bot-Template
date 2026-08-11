@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { supabase } from "./supabase.js";
+import { normalizeSchedule, type TenantSchedule } from "../services/tenant-schedule.js";
 
 /** Tipo de bot. Lo elige el Owner Console al crearlo y decide qué módulos arrancan. */
 export type BotKind = "assistant" | "messaging" | "voice";
@@ -79,6 +80,7 @@ export interface TenantConfig {
   servicios: string;
   moneda: string;
   zonaHoraria: string;
+  schedule: TenantSchedule;
   adminEmails: string[];
   behavior: BotBehavior;
   policy: {
@@ -226,6 +228,7 @@ function cargarConfigsDeDisco(): TenantConfig[] {
             ? "technical_support"
             : "sales";
 
+      const assistantReportTime = json.asistente?.horaReporte ?? "20:00";
       configs.push({
         slug: json.slug,
         kind,
@@ -239,6 +242,7 @@ function cargarConfigsDeDisco(): TenantConfig[] {
         servicios: json.servicios ?? "",
         moneda: json.moneda ?? "USD",
         zonaHoraria: json.zonaHoraria ?? "America/Santo_Domingo",
+        schedule: normalizeSchedule(json.schedule, assistantReportTime),
         adminEmails: (json.adminEmails ?? [])
           .map((e: string) => e.trim().toLowerCase())
           .filter(Boolean),

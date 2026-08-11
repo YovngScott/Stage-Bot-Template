@@ -40,11 +40,21 @@
   },
   "state": "draft",
   "tests": [],
-  "manualRuns": [],
+  "manualRuns": [
+    {
+      "id": "d7e8ba96-d3f6-4e44-857e-b4d9ef0056b4",
+      "question": "A que te dedicas?",
+      "response": "Soy el asistente ejecutivo personal de Joseph Antonio, me encargo de triage de correo, respuestas rutinarias y extracción de tareas para liberar su tiempo.",
+      "decision": "answer",
+      "tools": [],
+      "latencyMs": 606,
+      "testedAt": "2026-08-11T20:41:40.228Z"
+    }
+  ],
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-08-11T20:41:15.325Z",
-  "updatedAt": "2026-08-11T20:41:15.325Z",
+  "updatedAt": "2026-08-11T20:41:40.228Z",
   "publishedAt": null,
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

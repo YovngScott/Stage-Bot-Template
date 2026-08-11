@@ -64,6 +64,15 @@
   ],
   "manualRuns": [
     {
+      "id": "eb1e0392-d5e1-4ca1-aa50-18bfe5f120bb",
+      "question": "A que hora estan abiertos?",
+      "response": "Nuestro horario es de lunes a viernes de 9:00 a.m. a 6:00 p.m. y los sábados de 9:00 a.m. a 3:00 p.m. Los domingos estamos cerrados.",
+      "decision": "answer",
+      "tools": [],
+      "latencyMs": 802,
+      "testedAt": "2026-08-11T20:45:19.134Z"
+    },
+    {
       "id": "74cfc68b-b18b-4286-abd2-7197fb3cafbb",
       "question": "Haces citas?",
       "response": "Sí, podemos agendar una cita para ti. ¿Podrías decirme para qué necesitas la cita? ¿Es para reparar un dispositivo Apple o para algún otro servicio?",
@@ -87,7 +96,7 @@
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-08-10T19:07:54.607Z",
-  "updatedAt": "2026-08-10T19:32:55.045Z",
+  "updatedAt": "2026-08-11T20:45:19.134Z",
   "publishedAt": "2026-08-10T19:07:54.607Z",
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null

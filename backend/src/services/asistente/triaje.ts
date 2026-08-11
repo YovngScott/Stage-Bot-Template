@@ -10,6 +10,7 @@ import { construirDestinoSeguro } from "./seguridad.js";
 import { queueFailure, recordMetric } from "../operations.js";
 import { canContactNow } from "../tenant-schedule.js";
 import { attachmentRisk } from "./email-safety.js";
+import { rememberEmailFollowup } from "./continuidad.js";
 import {
   checkUsage,
   completeChannelTestResponse,
@@ -115,6 +116,17 @@ async function reconciliarPendientes(tenant: Tenant, proveedor: EmailProvider): 
       .from("asistente_correos")
       .update({ resuelto_en: new Date().toISOString(), resolucion: estado })
       .eq("id", fila.id);
+    await supabase
+      .from("email_followups")
+      .update({
+        status: "completed",
+        resolution: `El titular resolvió el borrador en su buzón (${estado}).`,
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("tenant_id", tenant.id)
+      .eq("thread_id", fila.gmail_thread_id)
+      .in("status", ["pending_owner", "ready_to_reply"]);
     cerrados += 1;
   }
 
@@ -420,6 +432,10 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
       const noEntendio = clasificacion.confianza < asistente.umbralConfianza;
       const respuesta = clasificacion.borrador;
       const destino = respuesta ? construirDestinoSeguro(correo, respuesta.cuerpo) : null;
+      // La continuidad se registra ANTES de enviar una promesa futura. Si la
+      // base no puede guardar el pendiente, el pipeline falla cerrado y no
+      // le dice al cliente "te aviso" para luego olvidarlo.
+      const continuidad = await rememberEmailFollowup(tenant, correo, clasificacion);
 
       // Última barrera antes de mandar algo a nombre del titular: el prompt
       // prohíbe plantillas a medio llenar, pero un prompt no es una garantía.
@@ -435,6 +451,21 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
 
       const debeDecidirElTitular =
         clasificacion.requiereDecisionPersonal || noEntendio || textoInseguro || riesgoAdjunto.risky || Boolean(respuesta && !destino);
+
+      if (continuidad?.created && !debeDecidirElTitular) {
+        await avisarEjecutivo(
+          tenant,
+          [
+            `📌 *${tenant.config.nombreBot}* — seguimiento guardado`,
+            "",
+            `*Asunto:* ${correo.encabezados.subject}`,
+            `*Pendiente:* ${continuidad.followup.title}`,
+            continuidad.followup.task_type === "calendar"
+              ? "Requiere revisar disponibilidad y responder en el mismo hilo."
+              : "Quedó en la bandeja de pendientes hasta responder o marcarlo resuelto.",
+          ].join("\n"),
+        );
+      }
 
       const channelTestId = await matchInboundChannelTest(tenant.id, "email", correo.cuerpo);
       const puedeEnviarRuntime = Boolean(channelTestId) || (

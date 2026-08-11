@@ -4,6 +4,7 @@ import { requierePlataforma } from "../lib/adminAuth.js";
 import { obtenerEstadoWhatsApp } from "../services/baileys.js";
 import { obtenerProveedorCorreo } from "../services/asistente/proveedores/index.js";
 import { ejecutarTriaje } from "../services/asistente/triaje.js";
+import { listEmailFollowups, replyEmailFollowup, resolveEmailFollowup } from "../services/asistente/continuidad.js";
 import { supabase } from "../lib/supabase.js";
 import { enviarMensajeTexto } from "../services/baileys.js";
 import {
@@ -40,7 +41,7 @@ operationsRouter.get("/status", requierePlataforma, async (req: Request, res: Re
     }
   }
   const month = new Date().toISOString().slice(0, 7) + "-01";
-  const [runtime, usage, handoffs, shadows, tests, whatsappConversations, emailConversations] = await Promise.all([
+  const [runtime, usage, handoffs, shadows, tests, whatsappConversations, emailConversations, emailFollowups] = await Promise.all([
     getRuntimePolicy(tenant.id),
     supabase.from("usage_ledger").select("channel,messages,emails,input_tokens,output_tokens,estimated_cost_usd").eq("tenant_id", tenant.id).eq("month", month),
     supabase.from("conversation_controls").select("channel,conversation_id,taken_by,reason,taken_at").eq("tenant_id", tenant.id).eq("state", "human").limit(100),
@@ -48,6 +49,7 @@ operationsRouter.get("/status", requierePlataforma, async (req: Request, res: Re
     supabase.from("channel_test_runs").select("id,channel,status,challenge,destination,results,error,started_at,completed_at").eq("tenant_id", tenant.id).order("started_at", { ascending: false }).limit(20),
     supabase.from("clientes").select("id,telefono,nombre,ultimo_contacto").eq("tenant_id", tenant.id).order("ultimo_contacto", { ascending: false }).limit(20),
     supabase.from("asistente_correos").select("gmail_thread_id,remitente,asunto,recibido_en").eq("tenant_id", tenant.id).order("recibido_en", { ascending: false }).limit(20),
+    tenant.config.kind === "assistant" ? listEmailFollowups(tenant.id) : Promise.resolve([]),
   ]);
   return res.json({
     ok: true,
@@ -58,6 +60,7 @@ operationsRouter.get("/status", requierePlataforma, async (req: Request, res: Re
     handoffs: handoffs.data ?? [],
     shadows: shadows.data ?? [],
     channelTests: tests.data ?? [],
+    emailFollowups,
     conversations: [
       ...(whatsappConversations.data ?? []).map((item: any) => ({ channel: "whatsapp", id: item.id, contact: item.nombre || item.telefono, subject: null, updatedAt: item.ultimo_contacto })),
       ...(emailConversations.data ?? []).map((item: any) => ({ channel: "email", id: item.gmail_thread_id, contact: item.remitente, subject: item.asunto, updatedAt: item.recibido_en })),
@@ -65,6 +68,24 @@ operationsRouter.get("/status", requierePlataforma, async (req: Request, res: Re
     ...(await operationStatus(tenant.config.slug)),
     checkedAt: new Date().toISOString(),
   });
+});
+
+operationsRouter.post("/email-followups/:id/reply", requierePlataforma, async (req: Request, res: Response) => {
+  try {
+    await replyEmailFollowup(req.tenant!, req.params.id, String(req.body?.response ?? ""));
+    return res.json({ ok: true, status: "completed" });
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : "No se pudo responder el seguimiento." });
+  }
+});
+
+operationsRouter.post("/email-followups/:id/resolve", requierePlataforma, async (req: Request, res: Response) => {
+  try {
+    await resolveEmailFollowup(req.tenant!.id, req.params.id, String(req.body?.resolution ?? "Resuelto por el dueño"));
+    return res.json({ ok: true, status: "completed" });
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : "No se pudo cerrar el seguimiento." });
+  }
 });
 
 operationsRouter.post("/runtime", requierePlataforma, async (req: Request, res: Response) => {
@@ -125,17 +146,18 @@ operationsRouter.post("/shadows/:id/review", requierePlataforma, async (req: Req
 
 operationsRouter.get("/export", requierePlataforma, async (req: Request, res: Response) => {
   const tenant = req.tenant!;
-  const [clients, messages, email, policies, controls, consents] = await Promise.all([
+  const [clients, messages, email, followups, policies, controls, consents] = await Promise.all([
     supabase.from("clientes").select("*").eq("tenant_id", tenant.id),
     supabase.from("mensajes").select("*").eq("tenant_id", tenant.id).order("creado_en", { ascending: true }),
     supabase.from("asistente_correos").select("*").eq("tenant_id", tenant.id).order("procesado_en", { ascending: true }),
+    supabase.from("email_followups").select("*").eq("tenant_id", tenant.id).order("created_at", { ascending: true }),
     supabase.from("tenant_runtime_policies").select("*").eq("tenant_id", tenant.id),
     supabase.from("conversation_controls").select("*").eq("tenant_id", tenant.id),
     supabase.from("channel_consents").select("*").eq("tenant_id", tenant.id),
   ]);
   res.setHeader("content-type", "application/json; charset=utf-8");
   res.setHeader("content-disposition", `attachment; filename="stage-${tenant.config.slug}-${new Date().toISOString().slice(0, 10)}.json"`);
-  return res.send(JSON.stringify({ exportedAt: new Date().toISOString(), tenant: tenant.config, clients: clients.data ?? [], messages: messages.data ?? [], email: email.data ?? [], policies: policies.data ?? [], controls: controls.data ?? [], consents: consents.data ?? [] }, null, 2));
+  return res.send(JSON.stringify({ exportedAt: new Date().toISOString(), tenant: tenant.config, clients: clients.data ?? [], messages: messages.data ?? [], email: email.data ?? [], emailFollowups: followups.data ?? [], policies: policies.data ?? [], controls: controls.data ?? [], consents: consents.data ?? [] }, null, 2));
 });
 
 operationsRouter.post("/recovery-drill", requierePlataforma, async (req: Request, res: Response) => {

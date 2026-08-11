@@ -293,6 +293,34 @@ create index if not exists idx_asistente_correos_tenant_fecha
 create index if not exists idx_asistente_correos_revision
   on asistente_correos (tenant_id, resultado) where resultado = 'revision';
 
+-- Memoria operativa: una promesa de seguimiento nunca queda solo en el texto
+-- generado. Se conserva por tenant e hilo hasta responderla o cerrarla.
+create table if not exists email_followups (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references tenants(id) on delete cascade,
+  thread_id text not null,
+  source_message_id text not null,
+  recipient text not null,
+  subject text not null default '',
+  message_id text,
+  task_type text not null default 'follow_up' check (task_type in ('calendar','reply','review','follow_up')),
+  title text not null,
+  notes text not null default '',
+  due_at timestamptz,
+  status text not null default 'pending_owner' check (status in ('pending_owner','ready_to_reply','completed','cancelled')),
+  context jsonb not null default '[]'::jsonb,
+  draft_reply text,
+  owner_note text,
+  resolution text,
+  last_message_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  completed_at timestamptz,
+  unique (tenant_id, source_message_id)
+);
+create index if not exists idx_email_followups_tenant_status on email_followups (tenant_id, status, updated_at desc);
+create index if not exists idx_email_followups_thread on email_followups (tenant_id, thread_id, updated_at desc);
+
 -- Bitácora de cada corrida del triaje: sirve para monitorear coste y salud
 -- del pipeline sin tener que guardar los correos.
 create table if not exists asistente_ejecuciones (
@@ -447,6 +475,7 @@ alter table empleados           enable row level security;
 alter table google_oauth_tokens enable row level security;
 alter table asistente_correos     enable row level security;
 alter table asistente_ejecuciones enable row level security;
+alter table email_followups        enable row level security;
 -- asistente_cuentas: RLS activa y SIN políticas, igual que super_admins. Nadie
 -- con la anon/authenticated key puede tocarla; solo el backend (service_role).
 -- Contiene credenciales de buzones: el dashboard no tiene por qué leerla.

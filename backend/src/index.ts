@@ -27,7 +27,14 @@ let apagando = false;
 app.set("trust proxy", true);
 
 app.use(cors());
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({
+  limit: "2mb",
+  verify: (req, _res, buffer) => {
+    // Meta firma los bytes exactos del webhook. Se conserva una copia para
+    // verificarla sin impedir que el resto de rutas reciba JSON normal.
+    (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+  },
+}));
 
 app.get("/health", (_req, res) => {
   const estados = listarTenants().map((tenant) => obtenerEstadoWhatsApp(tenant.id));

@@ -10,7 +10,7 @@
     "start": "tsx src/index.ts",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/services/asistente/seguridad.test.ts src/services/scope-guard.test.ts src/services/tenant-schedule.test.ts"
+    "test": "tsx --test src/services/asistente/seguridad.test.ts src/services/scope-guard.test.ts src/services/tenant-schedule.test.ts src/tools/executor-isolation.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.11.0",

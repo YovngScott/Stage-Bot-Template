@@ -23,6 +23,7 @@ import { generarRespuesta } from "./ia.js";
 import { conTimeout } from "../lib/timeout.js";
 import { responderComandoWhatsApp } from "./asistente/triaje.js";
 import { queueFailure, recordMetric } from "./operations.js";
+import { metaConfigured, sendMetaText, type MetaIncomingMessage } from "./meta-whatsapp.js";
 
 const logger = pino({ level: "silent" });
 
@@ -35,6 +36,7 @@ const logger = pino({ level: "silent" });
  */
 
 interface EstadoWhatsApp {
+  provider: "baileys" | "meta_cloud";
   conectado: boolean;
   numero: string | null;
   qrDataUrl: string | null;
@@ -68,8 +70,9 @@ function authDirDe(tenant: Tenant): string {
   return path.resolve(config.baileysAuthDirBase, tenant.config.slug);
 }
 
-function estadoInicial(): EstadoWhatsApp {
+function estadoInicial(provider: "baileys" | "meta_cloud" = "baileys"): EstadoWhatsApp {
   return {
+    provider,
     conectado: false,
     numero: null,
     qrDataUrl: null,
@@ -155,6 +158,9 @@ export async function solicitarCodigoEmparejamiento(
   numero: string,
 ): Promise<string> {
   const sesion = sesiones.get(tenantId);
+  if (sesion?.tenant.config.whatsapp.provider === "meta_cloud") {
+    throw new Error("Meta WhatsApp Cloud API no usa QR ni código de emparejamiento.");
+  }
   if (!sesion?.sock) {
     throw new Error(
       "El servidor de WhatsApp de este cliente todavía no está listo. Espera unos segundos e intenta de nuevo.",
@@ -186,7 +192,7 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
   const sesion: Sesion = {
     tenant,
     sock: null,
-    estado: previa?.estado ?? estadoInicial(),
+    estado: previa?.estado ?? estadoInicial(tenant.config.whatsapp.provider),
     colas: previa?.colas ?? new Map(),
     ultimosMensajes: previa?.ultimosMensajes ?? new Map(),
     generacion,
@@ -196,6 +202,24 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
     ultimoLogQr: previa?.ultimoLogQr ?? 0,
   };
   sesiones.set(tenant.id, sesion);
+
+  if (tenant.config.whatsapp.provider === "meta_cloud") {
+    sesion.iniciando = false;
+    sesion.estado = {
+      provider: "meta_cloud",
+      conectado: metaConfigured(tenant),
+      numero: tenant.config.whatsapp.phoneNumberId || null,
+      qrDataUrl: null,
+      pairingCode: null,
+      actualizadoEn: Date.now(),
+    };
+    if (!sesion.estado.conectado) {
+      console.warn(`[whatsapp:${tenant.config.slug}] Meta Cloud seleccionado, pero faltan secretos o phone number ID.`);
+    } else {
+      console.log(`✅ [whatsapp:${tenant.config.slug}] Meta WhatsApp Cloud API configurado.`);
+    }
+    return;
+  }
 
   const authDir = authDirDe(tenant);
   let authState: Awaited<ReturnType<typeof useMultiFileAuthState>>;
@@ -423,6 +447,12 @@ async function enviarAJid(
   texto: string,
 ): Promise<void> {
   const sesion = sesiones.get(tenantId);
+  if (sesion?.tenant.config.whatsapp.provider === "meta_cloud") {
+    if (!sesion.estado.conectado) throw new Error("Meta WhatsApp Cloud API no está configurado.");
+    const phone = `+${remoteJid.split("@")[0].split(":")[0]}`;
+    await sendMetaText(sesion.tenant, phone, texto);
+    return;
+  }
   if (!sesion?.sock || !sesion.estado.conectado) {
     throw new Error(
       "WhatsApp perdió la conexión antes de enviar la respuesta.",
@@ -696,6 +726,34 @@ async function procesarMensajeEntrante(
 }
 
 /** Envía un mensaje de texto a un número (formato E.164) desde el WhatsApp de un tenant. */
+/** Entrada normalizada desde el webhook oficial de Meta Cloud API. */
+export async function procesarMensajeMeta(tenant: Tenant, incoming: MetaIncomingMessage): Promise<void> {
+  if (tenant.config.whatsapp.provider !== "meta_cloud") return;
+  const sesion = sesiones.get(tenant.id);
+  if (!sesion) throw new Error("La sesión Meta del tenant no está inicializada.");
+  const chatId = incoming.phone.replace(/\D/g, "") + "@s.whatsapp.net";
+  sesion.ultimosMensajes.set(chatId, incoming.id);
+  const fakeMessage = {
+    key: { remoteJid: chatId, id: incoming.id, fromMe: false },
+    pushName: incoming.name,
+    message: { conversation: incoming.text },
+  };
+  const previous = sesion.colas.get(chatId) ?? Promise.resolve();
+  const next = previous.then(() =>
+    conTimeout(
+      procesarMensajeEntrante(tenant, fakeMessage, () => sesion.ultimosMensajes.get(chatId) === incoming.id),
+      90_000,
+      "procesarMensajeMeta",
+    ),
+  );
+  sesion.colas.set(chatId, next);
+  try {
+    await next;
+  } finally {
+    if (sesion.colas.get(chatId) === next) sesion.colas.delete(chatId);
+  }
+}
+
 export async function enviarMensajeTexto(
   tenantId: string,
   telefono: string,
@@ -705,7 +763,7 @@ export async function enviarMensajeTexto(
   // y cualquier envío iniciado fuera del manejador de mensajes entrantes.
   if (!(await tenantBotActivo(tenantId))) return;
   const sesion = sesiones.get(tenantId);
-  if (!sesion?.sock)
+  if (!sesion)
     throw new Error("WhatsApp no está conectado todavía para este cliente.");
   // El socket existe desde que arranca el intento de conexión, pero mientras
   // nadie escanee el QR no hay sesión: enviar ahí revienta dentro de Baileys

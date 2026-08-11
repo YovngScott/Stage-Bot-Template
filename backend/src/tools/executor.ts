@@ -15,7 +15,7 @@ const toolSchemas: Record<string, z.ZodTypeAny> = {
   consultar_catalogo: z.object({
     busqueda: z.string().trim().min(1).max(200),
     categoria: z.string().trim().max(100).optional(),
-  }),
+  }).strict(),
   etiquetar_cliente: z.object({
     estado: z.enum([
       "nuevo",
@@ -28,23 +28,23 @@ const toolSchemas: Record<string, z.ZodTypeAny> = {
     ]),
     notas: z.string().trim().max(800).optional(),
     etiquetas: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
-  }),
+  }).strict(),
   verificar_disponibilidad: z.object({
     inicio_iso: isoDate,
     duracion_minutos: z.number().int().min(15).max(480).optional(),
-  }),
+  }).strict(),
   agendar_cita: z.object({
     inicio_iso: isoDate,
     duracion_minutos: z.number().int().min(15).max(480).optional(),
     motivo: z.string().trim().min(2).max(300),
     cliente_confirmo: z.literal(true),
-  }),
+  }).strict(),
   reprogramar_cita: z.object({
     inicio_iso: isoDate,
     duracion_minutos: z.number().int().min(15).max(480).optional(),
     cliente_confirmo: z.literal(true),
-  }),
-  cancelar_cita: z.object({ cliente_confirmo: z.literal(true) }),
+  }).strict(),
+  cancelar_cita: z.object({ cliente_confirmo: z.literal(true) }).strict(),
   registrar_consulta: z.object({
     categoria: z.enum([
       "precio",
@@ -59,7 +59,7 @@ const toolSchemas: Record<string, z.ZodTypeAny> = {
     pregunta: z.string().trim().min(2).max(300),
     servicio_texto: z.string().trim().max(200).optional(),
     servicio_id: z.string().uuid().optional(),
-  }),
+  }).strict(),
 };
 
 function validateToolCall(
@@ -97,6 +97,9 @@ export async function ejecutarTool(
   cliente: Cliente,
 ): Promise<{ resultado: string; esError: boolean }> {
   try {
+    if (cliente.tenant_id !== tenant.id) {
+      throw new Error("Aislamiento de tenant: el cliente no pertenece a este bot.");
+    }
     input = validateToolCall(nombre, input, tenant);
     switch (nombre) {
       case "consultar_catalogo": {

@@ -7,6 +7,15 @@ import { normalizeSchedule, type TenantSchedule } from "../services/tenant-sched
 /** Tipo de bot. Lo elige el Owner Console al crearlo y decide qué módulos arrancan. */
 export type BotKind = "assistant" | "messaging" | "voice";
 export type BotBehavior = "sales" | "technical_support" | "personal_assistant";
+export type WhatsAppProvider = "baileys" | "meta_cloud";
+
+export interface WhatsAppConfig {
+  provider: WhatsAppProvider;
+  /** Identificadores no secretos de Meta. Los tokens viven solo en secretos de Fly. */
+  phoneNumberId: string;
+  businessAccountId: string;
+  apiVersion: string;
+}
 
 /**
  * Configuración del módulo de asistente virtual (solo aplica a kind
@@ -80,6 +89,7 @@ export interface TenantConfig {
   servicios: string;
   moneda: string;
   zonaHoraria: string;
+  whatsapp: WhatsAppConfig;
   schedule: TenantSchedule;
   adminEmails: string[];
   behavior: BotBehavior;
@@ -242,6 +252,14 @@ function cargarConfigsDeDisco(): TenantConfig[] {
         servicios: json.servicios ?? "",
         moneda: json.moneda ?? "USD",
         zonaHoraria: json.zonaHoraria ?? "America/Santo_Domingo",
+        whatsapp: {
+          provider: json.whatsapp?.provider === "meta_cloud" ? "meta_cloud" : "baileys",
+          phoneNumberId: String(json.whatsapp?.phoneNumberId ?? "").trim(),
+          businessAccountId: String(json.whatsapp?.businessAccountId ?? "").trim(),
+          apiVersion: /^v\d+\.\d+$/.test(String(json.whatsapp?.apiVersion ?? ""))
+            ? String(json.whatsapp.apiVersion)
+            : "v23.0",
+        },
         schedule: normalizeSchedule(json.schedule, assistantReportTime),
         adminEmails: (json.adminEmails ?? [])
           .map((e: string) => e.trim().toLowerCase())

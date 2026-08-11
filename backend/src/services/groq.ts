@@ -49,22 +49,26 @@ function historialAMensajes(historial: Mensaje[]): MensajeGroq[] {
   return out;
 }
 
-async function llamarGroq(mensajes: MensajeGroq[], intentos = 4): Promise<any> {
+async function llamarGroq(
+  mensajes: MensajeGroq[],
+  credenciales: { apiKey: string; model: string },
+  intentos = 4,
+): Promise<any> {
   for (let i = 0; i < intentos; i++) {
     // Timeout duro: si Groq no responde en 25s, abortamos la petición para no
     // dejar al bot colgado en "escribiendo…". El error se maneja arriba (ia.ts)
     // cayendo a Gemini o a un mensaje de respaldo.
     const res = await fetch(GROQ_URL, {
       method: "POST",
-      headers: { authorization: `Bearer ${config.groq.apiKey}`, "content-type": "application/json" },
+      headers: { authorization: `Bearer ${credenciales.apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
-        model: config.groq.model,
+        model: credenciales.model,
         messages: mensajes,
         tools: toolsGroq,
         tool_choice: "auto",
         temperature: 0.2,
         max_completion_tokens: 1024,
-        ...(config.groq.model.startsWith("openai/gpt-oss")
+        ...(credenciales.model.startsWith("openai/gpt-oss")
           ? { reasoning_effort: "medium", include_reasoning: false }
           : {}),
       }),
@@ -97,7 +101,13 @@ export async function generarRespuesta(
   cliente: Cliente,
   historial: Mensaje[],
   mensajeNuevo: string,
+  override?: { apiKey?: string; model?: string },
 ): Promise<RespuestaAgente> {
+  const credenciales = {
+    apiKey: override?.apiKey || config.groq.apiKey,
+    model: override?.model || config.groq.model,
+  };
+  if (!credenciales.apiKey) throw new Error("Groq no tiene una API key configurada.");
   const mensajes: MensajeGroq[] = [
     { role: "system", content: systemPrompt(tenant, cliente) },
     ...historialAMensajes(historial),
@@ -108,7 +118,7 @@ export async function generarRespuesta(
   let tokensSalida = 0;
 
   for (let i = 0; i < MAX_ITERACIONES; i++) {
-    const data = await llamarGroq(mensajes);
+    const data = await llamarGroq(mensajes, credenciales);
     tokensEntrada += data.usage?.prompt_tokens ?? 0;
     tokensSalida += data.usage?.completion_tokens ?? 0;
 

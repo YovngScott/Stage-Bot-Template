@@ -28,6 +28,9 @@ export const config = {
   groq: {
     apiKey: process.env.GROQ_API_KEY ?? "",
     model: process.env.GROQ_MODEL ?? "openai/gpt-oss-120b",
+    fallbackApiKey: process.env.GROQ_FALLBACK_API_KEY ?? "",
+    fallbackModel:
+      process.env.GROQ_FALLBACK_MODEL ?? process.env.GROQ_MODEL ?? "openai/gpt-oss-120b",
   },
 
   gemini: {

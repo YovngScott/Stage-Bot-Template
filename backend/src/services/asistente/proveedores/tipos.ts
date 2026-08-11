@@ -26,6 +26,13 @@ export interface EncabezadosCorreo {
   listUnsubscribe?: string;
   precedence?: string;
   autoSubmitted?: string;
+  replyTo?: string;
+}
+
+export interface AdjuntoCorreo {
+  nombre: string;
+  mimeType: string;
+  tamano: number;
 }
 
 /** Un correo entrante, ya normalizado y sin rastros del proveedor de origen. */
@@ -40,6 +47,7 @@ export interface CorreoEntrante {
   recibidoEn: string;
   /** Message-Id RFC 5322 original: encadena la respuesta en el cliente del destinatario. */
   messageId?: string;
+  adjuntos?: AdjuntoCorreo[];
 }
 
 /** Una respuesta lista para enviarse o guardarse como borrador. */

@@ -41,10 +41,13 @@ export interface MetaIncomingMessage {
   phone: string;
   name?: string;
   text: string;
+  mediaType: "text" | "image" | "audio" | "document" | "location" | "unknown";
+  mediaId?: string;
 }
 
 export function parseMetaMessages(body: any): MetaIncomingMessage[] {
   const result: MetaIncomingMessage[] = [];
+  const seen = new Set<string>();
   for (const entry of Array.isArray(body?.entry) ? body.entry : []) {
     for (const change of Array.isArray(entry?.changes) ? entry.changes : []) {
       const value = change?.value;
@@ -55,6 +58,9 @@ export function parseMetaMessages(body: any): MetaIncomingMessage[] {
       for (const message of Array.isArray(value?.messages) ? value.messages : []) {
         const phone = String(message?.from ?? "").replace(/\D/g, "");
         const id = String(message?.id ?? "").trim();
+        const type = String(message?.type ?? "text");
+        const mediaType: MetaIncomingMessage["mediaType"] =
+          type === "image" || type === "audio" || type === "document" || type === "location" ? type : type === "text" ? "text" : "unknown";
         const text = String(
           message?.text?.body ??
             message?.image?.caption ??
@@ -62,9 +68,17 @@ export function parseMetaMessages(body: any): MetaIncomingMessage[] {
             message?.button?.text ??
             message?.interactive?.button_reply?.title ??
             message?.interactive?.list_reply?.title ??
+            (type === "audio" ? "[Audio recibido: requiere transcripción o revisión humana]" : undefined) ??
+            (type === "image" ? "[Imagen recibida sin descripción]" : undefined) ??
+            (type === "document" ? `[Documento recibido: ${String(message?.document?.filename ?? "sin nombre")}]` : undefined) ??
+            (type === "location" ? `[Ubicación recibida: ${Number(message?.location?.latitude)}, ${Number(message?.location?.longitude)}]` : undefined) ??
             "",
         ).trim();
-        if (phone && id && text) result.push({ id, phone: `+${phone}`, name: names.get(phone), text });
+        const mediaId = String(message?.image?.id ?? message?.audio?.id ?? message?.document?.id ?? "").trim() || undefined;
+        if (phone && id && text && !seen.has(id)) {
+          seen.add(id);
+          result.push({ id, phone: `+${phone}`, name: names.get(phone), text, mediaType, mediaId });
+        }
       }
     }
   }

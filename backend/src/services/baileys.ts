@@ -24,6 +24,22 @@ import { conTimeout } from "../lib/timeout.js";
 import { responderComandoWhatsApp } from "./asistente/triaje.js";
 import { queueFailure, recordMetric } from "./operations.js";
 import { metaConfigured, sendMetaText, type MetaIncomingMessage } from "./meta-whatsapp.js";
+import { canContactNow } from "./tenant-schedule.js";
+import {
+  checkUsage,
+  completeChannelTestResponse,
+  consentCommand,
+  getRuntimePolicy,
+  isConversationHuman,
+  isOptedOut,
+  isSpamBurst,
+  matchInboundChannelTest,
+  recordChannelEvent,
+  recordUsage,
+  saveShadowDecision,
+  setConsent,
+  shouldAutoSend,
+} from "./runtime-controls.js";
 
 const logger = pino({ level: "silent" });
 
@@ -538,10 +554,20 @@ async function procesarMensajeEntrante(
   )
     return;
 
+  const mediaType = msg.message.imageMessage ? "image"
+    : msg.message.audioMessage ? "audio"
+      : msg.message.documentMessage ? "document"
+        : msg.message.locationMessage ? "location"
+          : "text";
   const texto: string | undefined =
     msg.message.conversation ??
     msg.message.extendedTextMessage?.text ??
     msg.message.imageMessage?.caption ??
+    msg.message.documentMessage?.caption ??
+    (msg.message.audioMessage ? "[Audio recibido: requiere transcripción o revisión humana]" : undefined) ??
+    (msg.message.imageMessage ? "[Imagen recibida sin descripción]" : undefined) ??
+    (msg.message.documentMessage ? `[Documento recibido: ${String(msg.message.documentMessage?.fileName ?? "sin nombre")}]` : undefined) ??
+    (msg.message.locationMessage ? `[Ubicación recibida: ${Number(msg.message.locationMessage?.degreesLatitude)}, ${Number(msg.message.locationMessage?.degreesLongitude)}]` : undefined) ??
     undefined;
 
   if (!texto) return;
@@ -555,6 +581,16 @@ async function procesarMensajeEntrante(
   const telefono = "+" + jidIdentidad.split("@")[0].split(":")[0];
   const nombre: string | undefined = msg.pushName || undefined;
 
+  await recordChannelEvent({
+    tenantId: tenant.id,
+    channel: "whatsapp",
+    externalId: waMessageId,
+    eventType: "inbound",
+    mediaType,
+    status: "received",
+    metadata: { contact: telefono, hasCaption: mediaType !== "text" ? !texto.startsWith("[") : true },
+  }).catch(() => undefined);
+
   const cliente = await obtenerOCrearCliente(tenant.id, telefono, nombre);
   const idGuardado = await guardarMensaje({
     tenant_id: tenant.id,
@@ -564,6 +600,33 @@ async function procesarMensajeEntrante(
     wa_message_id: waMessageId,
   });
   if (idGuardado === null) return; // ya procesado por otro worker
+  const channelTestId = await matchInboundChannelTest(tenant.id, "whatsapp", texto);
+
+  const consent = consentCommand(texto);
+  if (consent) {
+    await setConsent(tenant.id, "whatsapp", telefono, consent, `Mensaje ${waMessageId}`);
+    const confirmation = consent === "opted_out"
+      ? "Listo. No recibirás más mensajes automáticos. Puedes escribir INICIAR cuando quieras reactivarlos."
+      : "Listo. Las respuestas automáticas están habilitadas nuevamente.";
+    await enviarAJidConReintento(tenant.id, remoteJid, confirmation);
+    await guardarMensaje({ tenant_id: tenant.id, cliente_id: cliente.id, rol: "sistema", contenido: confirmation });
+    return;
+  }
+  if (await isOptedOut(tenant.id, "whatsapp", telefono)) return;
+  if (await isConversationHuman(tenant.id, "whatsapp", cliente.id)) return;
+
+  const usage = await checkUsage(tenant.id, "whatsapp");
+  if (!usage.allowed || await isSpamBurst(tenant.id, "whatsapp", telefono, usage.policy.spamPerMinute)) {
+    await queueFailure({
+      tenantSlug: tenant.config.slug,
+      source: "ai",
+      operation: "limite_o_abuso_whatsapp",
+      error: new Error(usage.reason || "Ráfaga de mensajes anormal"),
+      dedupeKey: `${tenant.config.slug}:policy:${telefono}:${new Date().toISOString().slice(0, 13)}`,
+      maxAttempts: 1,
+    }).catch(() => undefined);
+    return;
+  }
 
   // Una persona suele enviar "Hola" + "quiero una cita" + "mañana" como
   // varios mensajes. Esperamos una ventana corta: los anteriores se guardan,
@@ -660,10 +723,30 @@ async function procesarMensajeEntrante(
     }).catch(() => undefined);
   }
 
-  const textoRespuesta = (respuesta?.texto ?? "").trim();
-  const textoFinal =
-    textoRespuesta ||
-    "Disculpa, tuve un inconveniente técnico procesando tu mensaje. Dame un momento por favor y sigo contigo. 🙏";
+  const textoFinal = (respuesta?.texto ?? "").trim();
+  // Fail closed: si todos los proveedores de IA fallan, el mensaje queda
+  // guardado y la operación durable avisa al owner. No se improvisa ni envía.
+  if (!textoFinal) return;
+
+  const runtimePolicy = await getRuntimePolicy(tenant.id);
+  const contactAllowed = canContactNow(new Date(), tenant.config.zonaHoraria, tenant.config.schedule);
+  if (!channelTestId && (!shouldAutoSend(runtimePolicy, waMessageId) || !contactAllowed)) {
+    await saveShadowDecision({
+      tenantId: tenant.id,
+      channel: "whatsapp",
+      conversationId: cliente.id,
+      incomingId: waMessageId,
+      proposedResponse: textoFinal,
+      decision: !contactAllowed ? "outside_contact_hours" : runtimePolicy.mode === "paused" ? "paused" : "shadow",
+      model: config.groq.model,
+    });
+    await recordUsage(tenant.id, "whatsapp", {
+      messages: 1,
+      inputTokens: respuesta?.tokensEntrada,
+      outputTokens: respuesta?.tokensSalida,
+    }).catch(() => undefined);
+    return;
+  }
 
   // Retraso "humano" fijo de 5 segundos antes de responder (mostrando el
   // indicador "escribiendo…"): responder al instante hace que WhatsApp marque
@@ -715,6 +798,9 @@ async function procesarMensajeEntrante(
     tokens_entrada: respuesta?.tokensEntrada,
     tokens_salida: respuesta?.tokensSalida,
   });
+  if (channelTestId) {
+    await completeChannelTestResponse(channelTestId, tenant.id, true).catch(() => undefined);
+  }
   await recordMetric({
     tenantSlug: tenant.config.slug,
     source: "whatsapp",
@@ -722,6 +808,11 @@ async function procesarMensajeEntrante(
     tokens:
       Number(respuesta?.tokensEntrada ?? 0) +
       Number(respuesta?.tokensSalida ?? 0),
+  }).catch(() => undefined);
+  await recordUsage(tenant.id, "whatsapp", {
+    messages: 1,
+    inputTokens: respuesta?.tokensEntrada,
+    outputTokens: respuesta?.tokensSalida,
   }).catch(() => undefined);
 }
 
@@ -736,7 +827,15 @@ export async function procesarMensajeMeta(tenant: Tenant, incoming: MetaIncoming
   const fakeMessage = {
     key: { remoteJid: chatId, id: incoming.id, fromMe: false },
     pushName: incoming.name,
-    message: { conversation: incoming.text },
+    message: incoming.mediaType === "image"
+      ? { imageMessage: { caption: incoming.text, mediaId: incoming.mediaId } }
+      : incoming.mediaType === "audio"
+        ? { audioMessage: { mediaId: incoming.mediaId } }
+        : incoming.mediaType === "document"
+          ? { documentMessage: { caption: incoming.text, mediaId: incoming.mediaId } }
+          : incoming.mediaType === "location"
+            ? { locationMessage: {}, conversation: incoming.text }
+            : { conversation: incoming.text },
   };
   const previous = sesion.colas.get(chatId) ?? Promise.resolve();
   const next = previous.then(() =>

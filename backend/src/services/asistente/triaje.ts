@@ -8,6 +8,21 @@ import { describirMotivo, evaluarHeuristica, extraerDireccion } from "./heuristi
 import { validarParaEnvio } from "./validacion.js";
 import { construirDestinoSeguro } from "./seguridad.js";
 import { queueFailure, recordMetric } from "../operations.js";
+import { canContactNow } from "../tenant-schedule.js";
+import { attachmentRisk } from "./email-safety.js";
+import {
+  checkUsage,
+  completeChannelTestResponse,
+  consentCommand,
+  getRuntimePolicy,
+  isConversationHuman,
+  matchInboundChannelTest,
+  recordChannelEvent,
+  recordUsage,
+  saveShadowDecision,
+  setConsent,
+  shouldAutoSend,
+} from "../runtime-controls.js";
 
 /**
  * Orquestador del pipeline de triaje:
@@ -294,6 +309,7 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
     // Se lee en cada corrida (no de la config del bot) para que el interruptor
     // del Owner Console surta efecto sin redesplegar.
     const enviarAutomatico = await envioAutomaticoActivo(tenant);
+    const runtimePolicy = await getRuntimePolicy(tenant.id);
 
     const desde = await obtenerUltimaMarca(tenant.id);
     // Pedimos una ventana mayor que el lote de trabajo y procesamos primero
@@ -308,12 +324,22 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
       const correo = await proveedor.obtener(id);
       if (!correo) continue;
       resumen.revisados += 1;
+      const remitente = extraerDireccion(correo.encabezados.from);
+      await recordChannelEvent({
+        tenantId: tenant.id,
+        channel: "email",
+        externalId: correo.id,
+        eventType: "inbound",
+        mediaType: (correo.adjuntos?.length ?? 0) > 0 ? "attachment" : "text",
+        status: "received",
+        metadata: { contact: remitente, attachments: (correo.adjuntos ?? []).map((a) => ({ name: a.nombre, type: a.mimeType, size: a.tamano })) },
+      }).catch(() => undefined);
 
       const fila: Record<string, unknown> = {
         tenant_id: tenant.id,
         gmail_message_id: correo.id,
         gmail_thread_id: correo.hiloId,
-        remitente: extraerDireccion(correo.encabezados.from),
+        remitente,
         asunto: correo.encabezados.subject.slice(0, 500),
         recibido_en: correo.recibidoEn,
       };
@@ -326,6 +352,23 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
         .insert({ ...fila, resultado: "error" });
       if (reservaError?.code === "23505") continue;
       if (reservaError) throw reservaError;
+
+      const consent = consentCommand(correo.cuerpo);
+      if (consent) {
+        await setConsent(tenant.id, "email", remitente, consent, `Correo ${correo.id}`);
+        await finalizarCorreo(tenant.id, correo.id, { ...fila, resultado: "omitido", motivo_descarte: "Preferencia de contacto actualizada" });
+        continue;
+      }
+      if (await isConversationHuman(tenant.id, "email", correo.hiloId)) {
+        await finalizarCorreo(tenant.id, correo.id, { ...fila, resultado: "revision", justificacion: "Conversación tomada por una persona" });
+        continue;
+      }
+      const usage = await checkUsage(tenant.id, "email");
+      if (!usage.allowed) {
+        await finalizarCorreo(tenant.id, correo.id, { ...fila, resultado: "revision", justificacion: usage.reason });
+        await queueFailure({ tenantSlug: tenant.config.slug, source: "ai", operation: "limite_correo", error: new Error(usage.reason || "Límite de correo"), dedupeKey: `${tenant.config.slug}:email-limit:${new Date().toISOString().slice(0, 7)}`, maxAttempts: 1 }).catch(() => undefined);
+        continue;
+      }
 
       // ---- Capa 1: filtro determinista (sin coste) -------------------------
       const heuristica = evaluarHeuristica(correo.encabezados);
@@ -383,6 +426,7 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
       // Si el texto trae huecos, se trata como un correo que debe revisar él.
       const revisionTexto = respuesta ? validarParaEnvio(respuesta.cuerpo) : null;
       const textoInseguro = revisionTexto !== null && !revisionTexto.seguro;
+      const riesgoAdjunto = attachmentRisk(correo);
       if (textoInseguro) {
         console.warn(
           `[asistente:${tenant.config.slug}] Respuesta retenida para ${correo.id}: ${revisionTexto!.motivo}`,
@@ -390,14 +434,22 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
       }
 
       const debeDecidirElTitular =
-        clasificacion.requiereDecisionPersonal || noEntendio || textoInseguro || Boolean(respuesta && !destino);
+        clasificacion.requiereDecisionPersonal || noEntendio || textoInseguro || riesgoAdjunto.risky || Boolean(respuesta && !destino);
 
-      if (!debeDecidirElTitular && destino && enviarAutomatico) {
+      const channelTestId = await matchInboundChannelTest(tenant.id, "email", correo.cuerpo);
+      const puedeEnviarRuntime = Boolean(channelTestId) || (
+        shouldAutoSend(runtimePolicy, correo.id) &&
+        canContactNow(new Date(), tenant.config.zonaHoraria, tenant.config.schedule)
+      );
+
+      if (!debeDecidirElTitular && destino && enviarAutomatico && puedeEnviarRuntime) {
         try {
           await proveedor.enviar(destino);
           resumen.enviados += 1;
           await finalizarCorreo(tenant.id, correo.id, { ...fila, resultado: "enviado" });
           await proveedor.etiquetar(correo.id, "enviado");
+          if (channelTestId) await completeChannelTestResponse(channelTestId, tenant.id, true).catch(() => undefined);
+          await recordUsage(tenant.id, "email", { emails: 1 }).catch(() => undefined);
         } catch (err) {
           // Si el envío falla no perdemos el trabajo: se deja como borrador y
           // se avisa, que es el mismo camino de los correos que sí revisa.
@@ -417,6 +469,22 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
           });
           await proveedor.etiquetar(correo.id, "revision");
         }
+        continue;
+      }
+
+      if (!debeDecidirElTitular && destino && !puedeEnviarRuntime) {
+        const borradorId = await proveedor.crearBorrador(destino).catch(() => null);
+        await saveShadowDecision({
+          tenantId: tenant.id,
+          channel: "email",
+          conversationId: correo.hiloId,
+          incomingId: correo.id,
+          proposedResponse: destino.cuerpo,
+          decision: "shadow",
+        }).catch(() => undefined);
+        resumen.borradoresCreados += borradorId ? 1 : 0;
+        await finalizarCorreo(tenant.id, correo.id, { ...fila, resultado: "auto", borrador_id: borradorId });
+        await recordUsage(tenant.id, "email", { emails: 1 }).catch(() => undefined);
         continue;
       }
 
@@ -453,7 +521,7 @@ async function ejecutarTriajeInterno(tenant: Tenant): Promise<ResumenCorrida> {
       resumen.escaladosRevision += 1;
       const avisado = await avisarEjecutivo(
         tenant,
-        alertaWhatsApp(tenant, correo, clasificacion, Boolean(borradorId), revisionTexto?.motivo ?? null),
+        alertaWhatsApp(tenant, correo, clasificacion, Boolean(borradorId), riesgoAdjunto.reason ?? revisionTexto?.motivo ?? null),
       );
       await finalizarCorreo(tenant.id, correo.id, {
         ...fila,

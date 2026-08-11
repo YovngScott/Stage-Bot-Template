@@ -1,12 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isBusinessDay, isQuietTime, localClock, normalizeSchedule, shouldRunAt } from "./tenant-schedule.js";
+import { canContactNow, isBusinessDay, isQuietTime, localClock, normalizeSchedule, shouldRunAt } from "./tenant-schedule.js";
 
 test("calcula la hora local del tenant y no la hora del servidor", () => {
   const clock = localClock(new Date("2026-08-11T13:30:00Z"), "America/Santo_Domingo");
   assert.equal(clock.date, "2026-08-11");
   assert.equal(clock.time, "09:30");
   assert.equal(clock.weekday, 2);
+});
+
+test("contacta solo dentro del horario comercial del cliente", () => {
+  const schedule = normalizeSchedule({ businessDays: [2], businessStart: "09:00", businessEnd: "18:00", quietStart: "20:00", quietEnd: "08:00" });
+  assert.equal(canContactNow(new Date("2026-08-11T13:30:00Z"), "America/Santo_Domingo", schedule), true);
+  assert.equal(canContactNow(new Date("2026-08-11T23:30:00Z"), "America/Santo_Domingo", schedule), false);
 });
 
 test("respeta días laborables y feriados", () => {

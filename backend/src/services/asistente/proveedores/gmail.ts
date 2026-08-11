@@ -45,6 +45,14 @@ function extraerCuerpo(payload: gmail_v1.Schema$MessagePart | undefined): string
   return "";
 }
 
+function extraerAdjuntos(payload: gmail_v1.Schema$MessagePart | undefined): Array<{ nombre: string; mimeType: string; tamano: number }> {
+  if (!payload) return [];
+  const own = payload.filename
+    ? [{ nombre: payload.filename, mimeType: payload.mimeType || "application/octet-stream", tamano: Number(payload.body?.size ?? 0) }]
+    : [];
+  return [...own, ...(payload.parts ?? []).flatMap(extraerAdjuntos)];
+}
+
 class ProveedorGmail implements EmailProvider {
   readonly proveedor = "gmail" as const;
 
@@ -90,8 +98,10 @@ class ProveedorGmail implements EmailProvider {
         listUnsubscribe: leerEncabezado(headers, "List-Unsubscribe"),
         precedence: leerEncabezado(headers, "Precedence"),
         autoSubmitted: leerEncabezado(headers, "Auto-Submitted"),
+        replyTo: leerEncabezado(headers, "Reply-To"),
       },
       messageId: leerEncabezado(headers, "Message-Id"),
+      adjuntos: extraerAdjuntos(mensaje.payload),
       // 4000 caracteres bastan para clasificar y acotan el gasto de tokens.
       cuerpo: extraerCuerpo(mensaje.payload).slice(0, 4000),
       recibidoEn: mensaje.internalDate
@@ -107,7 +117,7 @@ class ProveedorGmail implements EmailProvider {
           userId: "me",
           requestBody: {
             message: {
-              threadId: respuesta.hiloId,
+              ...(respuesta.hiloId ? { threadId: respuesta.hiloId } : {}),
               raw: Buffer.from(construirMime(respuesta), "utf8").toString("base64url"),
             },
           },
@@ -123,7 +133,7 @@ class ProveedorGmail implements EmailProvider {
         this.gmail.users.messages.send({
           userId: "me",
           requestBody: {
-            threadId: respuesta.hiloId,
+            ...(respuesta.hiloId ? { threadId: respuesta.hiloId } : {}),
             raw: Buffer.from(construirMime(respuesta), "utf8").toString("base64url"),
           },
         }),

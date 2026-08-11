@@ -3,16 +3,13 @@ import type { Cliente, Mensaje } from "../lib/supabase.js";
 import type { Tenant } from "../lib/tenants.js";
 import { generarRespuesta as conGroq } from "./groq.js";
 import { generarRespuesta as conGemini } from "./gemini.js";
-import {
-  guardOutput,
-  guardScope,
-  guardSensitiveAction,
-} from "./scope-guard.js";
+import { guardOutput, guardScope, guardSensitiveAction } from "./scope-guard.js";
+import { runProviderFallback } from "./ai-fallback.js";
 
 /**
- * Punto único para generar la respuesta del bot. Elige el proveedor de IA
- * según AI_PROVIDER: "groq" (por defecto) o "gemini", con Gemini como
- * respaldo automático si Groq alcanza su límite gratuito.
+ * Punto único de generación. El orden es Groq principal -> segunda clave Groq
+ * -> Gemini. Si todos fallan LANZA: el canal debe retener la operación y
+ * alertar; nunca inventar un texto técnico para enviarlo al cliente.
  */
 export async function generarRespuesta(
   tenant: Tenant,
@@ -21,56 +18,21 @@ export async function generarRespuesta(
   mensaje: string,
 ) {
   const scopeResponse = guardScope(tenant, mensaje);
-  if (scopeResponse) {
-    return { texto: scopeResponse, tokensEntrada: 0, tokensSalida: 0 };
-  }
+  if (scopeResponse) return { texto: scopeResponse, tokensEntrada: 0, tokensSalida: 0 };
   const sensitiveResponse = guardSensitiveAction(tenant, mensaje);
-  if (sensitiveResponse)
-    return { texto: sensitiveResponse, tokensEntrada: 0, tokensSalida: 0 };
+  if (sensitiveResponse) return { texto: sensitiveResponse, tokensEntrada: 0, tokensSalida: 0 };
 
-  const secured = (result: {
-    texto: string;
-    tokensEntrada: number;
-    tokensSalida: number;
-  }) => ({
+  const secured = (result: { texto: string; tokensEntrada: number; tokensSalida: number }) => ({
     ...result,
     texto: guardOutput(tenant, result.texto),
   });
-
-  const respaldo = {
-    texto:
-      "Disculpa, se me complicó un poco procesar tu mensaje. Dame un momento y sigo contigo por aquí. 🙏",
-    tokensEntrada: 0,
-    tokensSalida: 0,
-  };
-
-  // Esta función NUNCA debe lanzar: pase lo que pase con los proveedores de
-  // IA, tiene que devolver un texto para que el bot responda algo y no deje
-  // al cliente viendo "escribiendo…" sin respuesta.
-  if (config.ai.provider === "gemini") {
-    try {
-      return secured(await conGemini(tenant, cliente, historial, mensaje));
-    } catch (err) {
-      console.error("[ia] Gemini falló y no hay otro proveedor:", err);
-      return respaldo;
+  const providers: Array<() => Promise<{ texto: string; tokensEntrada: number; tokensSalida: number }>> = [];
+  if (config.ai.provider !== "gemini") {
+    providers.push(() => conGroq(tenant, cliente, historial, mensaje));
+    if (config.groq.fallbackApiKey && config.groq.fallbackApiKey !== config.groq.apiKey) {
+      providers.push(() => conGroq(tenant, cliente, historial, mensaje, { apiKey: config.groq.fallbackApiKey, model: config.groq.fallbackModel }));
     }
   }
-
-  try {
-    return secured(await conGroq(tenant, cliente, historial, mensaje));
-  } catch (err) {
-    console.warn(
-      "[ia] Groq no estuvo disponible; intentando responder con Gemini:",
-      err,
-    );
-    if (config.gemini.apiKey) {
-      try {
-        return secured(await conGemini(tenant, cliente, historial, mensaje));
-      } catch (err2) {
-        console.error("[ia] Groq y Gemini fallaron ambos:", err2);
-        return respaldo;
-      }
-    }
-    return respaldo;
-  }
+  if (config.gemini.apiKey) providers.push(() => conGemini(tenant, cliente, historial, mensaje));
+  return secured(await runProviderFallback(providers));
 }

@@ -86,3 +86,10 @@ export function isBusinessDay(clock: LocalClock, schedule: TenantSchedule): bool
 export function shouldRunAt(clock: LocalClock, expectedTime: string, schedule: TenantSchedule): boolean {
   return clock.time === expectedTime && isBusinessDay(clock, schedule) && !isQuietTime(clock, schedule);
 }
+
+export function canContactNow(date: Date, timeZone: string, schedule: TenantSchedule): boolean {
+  const clock = localClock(date, timeZone);
+  const start = timeMinutes(schedule.businessStart);
+  const end = timeMinutes(schedule.businessEnd);
+  return isBusinessDay(clock, schedule) && !isQuietTime(clock, schedule) && clock.minutes >= start && clock.minutes < end;
+}

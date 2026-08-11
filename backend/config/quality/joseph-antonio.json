@@ -42,6 +42,15 @@
   "tests": [],
   "manualRuns": [
     {
+      "id": "4cf80b6f-ea23-4a36-bc4b-cf13f7771804",
+      "question": "A que se dedica Sr. Joseph?",
+      "response": "Sr. Joseph es fundador y desarrollador principal de Stage AI Labs, una empresa de desarrollo de software que crea agentes de IA, bots de WhatsApp y voz, y sistemas ERP/Web personalizados.",
+      "decision": "answer",
+      "tools": [],
+      "latencyMs": 746,
+      "testedAt": "2026-08-11T20:42:50.627Z"
+    },
+    {
       "id": "d7e8ba96-d3f6-4e44-857e-b4d9ef0056b4",
       "question": "A que te dedicas?",
       "response": "Soy el asistente ejecutivo personal de Joseph Antonio, me encargo de triage de correo, respuestas rutinarias y extracción de tareas para liberar su tiempo.",
@@ -54,7 +63,7 @@
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-08-11T20:41:15.325Z",
-  "updatedAt": "2026-08-11T20:41:40.228Z",
+  "updatedAt": "2026-08-11T20:42:50.627Z",
   "publishedAt": null,
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

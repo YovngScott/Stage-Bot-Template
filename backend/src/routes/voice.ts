@@ -17,11 +17,11 @@ voiceRouter.post("/webhook", async (req: Request, res: Response) => {
   const tenant = req.tenant!;
   const body = req.body ?? {};
 
-  // Formato Vapi.ai
-  if (body.message?.type === "tool-calls") {
-    const toolCalls = body.message.toolWithToolCallList ?? body.message.toolCalls ?? [];
-    const customer = body.message.call?.customer ?? {};
-    const rawPhone = customer.number || "+10000000000";
+  // Formato Vapi.ai (message.type === "tool-calls" o toolCall directo)
+  if (body.message?.type === "tool-calls" || body.toolCall || body.message?.toolCalls) {
+    const toolCalls = body.message?.toolWithToolCallList ?? body.message?.toolCalls ?? (body.toolCall ? [body.toolCall] : []);
+    const customer = body.message?.call?.customer ?? body.call?.customer ?? {};
+    const rawPhone = customer.number || body.phone || "+10000000000";
     const phone = rawPhone.startsWith("+") ? rawPhone : `+${rawPhone}`;
     const name = customer.name || "Cliente por Llamada";
 
@@ -30,8 +30,8 @@ voiceRouter.post("/webhook", async (req: Request, res: Response) => {
 
     for (const call of toolCalls) {
       const toolCallId = call.toolCallId || call.id;
-      const toolName = call.name || call.function?.name;
-      const rawArgs = call.arguments || call.function?.arguments || {};
+      const toolName = call.name || call.function?.name || body.name || body.toolName;
+      const rawArgs = call.arguments || call.function?.arguments || body.arguments || body.args || {};
       const args = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
 
       try {
@@ -45,14 +45,18 @@ voiceRouter.post("/webhook", async (req: Request, res: Response) => {
       }
     }
 
-    return res.json({ results });
+    if (results.length > 0) {
+      return res.json({ results, result: results[0]?.result });
+    }
   }
 
-  // Formato Genérico / Retell / Bland
-  const toolName = body.name || body.toolName;
-  const phone = body.phone || body.customerNumber || "+10000000000";
-  const name = body.customerName || body.nameClient || "Cliente por Llamada";
-  const args = body.arguments || body.args || {};
+  // Formato Genérico / Retell / Bland / Vapi Direct Request
+  const toolName = body.name || body.toolName || body.function?.name || body.toolCall?.name;
+  const rawPhone = body.phone || body.customerNumber || body.call?.customer?.number || "+10000000000";
+  const phone = rawPhone.startsWith("+") ? rawPhone : `+${rawPhone}`;
+  const name = body.customerName || body.nameClient || body.call?.customer?.name || "Cliente por Llamada";
+  const rawArgs = body.arguments || body.args || body.function?.arguments || body.toolCall?.function?.arguments || {};
+  const args = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
 
   if (!toolName) {
     return res.status(400).json({ error: "Falta el nombre de la herramienta (toolName)." });
@@ -61,7 +65,7 @@ voiceRouter.post("/webhook", async (req: Request, res: Response) => {
   try {
     const cliente = await obtenerOCrearCliente(tenant.id, phone, name);
     const { resultado, esError } = await ejecutarTool(toolName, args, tenant, cliente);
-    return res.json({ ok: !esError, toolName, result: resultado });
+    return res.json({ ok: !esError, toolName, result: resultado, results: [{ result: resultado }] });
   } catch (err) {
     return res.status(400).json({
       ok: false,
@@ -76,13 +80,16 @@ voiceRouter.post("/tools/:toolName", async (req: Request, res: Response) => {
   const tenant = req.tenant!;
   const toolName = req.params.toolName;
   const body = req.body ?? {};
-  const phone = body.phone || body.telefono || "+10000000000";
+  const rawPhone = body.phone || body.telefono || "+10000000000";
+  const phone = rawPhone.startsWith("+") ? rawPhone : `+${rawPhone}`;
   const name = body.nombre || body.name || "Cliente por Llamada";
+  const rawArgs = body.arguments || body.args || body;
+  const args = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
 
   try {
     const cliente = await obtenerOCrearCliente(tenant.id, phone, name);
-    const { resultado, esError } = await ejecutarTool(toolName, body, tenant, cliente);
-    return res.json({ ok: !esError, toolName, result: resultado });
+    const { resultado, esError } = await ejecutarTool(toolName, args, tenant, cliente);
+    return res.json({ ok: !esError, toolName, result: resultado, results: [{ result: resultado }] });
   } catch (err) {
     return res.status(400).json({
       ok: false,

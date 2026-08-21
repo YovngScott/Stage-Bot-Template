@@ -430,7 +430,7 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
         try {
           await sock.rejectCall(call.id, call.from);
           await sock.sendMessage(call.from, {
-            text: `👋 ¡Hola! Actualmente no puedo recibir llamadas de voz dentro de WhatsApp.\n\nPor favor, *envíame un mensaje de texto, nota de voz o foto por este chat*, o llámanos directamente a nuestro teléfono regular para hablar con la asistente de voz. ¡Con gusto te atenderé!`,
+            text: `👋 Hola, no recibimos llamadas directas dentro de WhatsApp. Para hablar por teléfono con nuestra asistente de voz en vivo, por favor llámanos a nuestro número telefónico directo o envíanos una nota de voz por este chat.`,
           });
         } catch (err) {
           console.warn(`[whatsapp:${tenant.config.slug}] No se pudo enviar aviso de llamada:`, err);

@@ -19,6 +19,10 @@ function required(name: string): string {
 export const config = {
   port: Number(process.env.PORT ?? 3000),
 
+  vapi: {
+    apiKey: process.env.VAPI_API_KEY ?? "",
+  },
+
   // Proveedor de IA para responder mensajes: "groq" (recomendado, capa gratuita
   // generosa con Llama) o "gemini" (Google, capa gratuita muy limitada).
   ai: {

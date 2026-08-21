@@ -16,6 +16,7 @@ import { voiceRouter } from "./routes/voice.js";
 import { detenerTodasLasSesiones, iniciarTodasLasSesiones, obtenerEstadoWhatsApp } from "./services/baileys.js";
 import { detenerScheduler, iniciarScheduler } from "./services/scheduler.js";
 import { startOperationWorker, stopOperationWorker } from "./services/operation-worker.js";
+import { aprovisionarAsistenteVapi } from "./services/vapi-provisioning.js";
 
 const app = express();
 let dashboardProcess: ChildProcess | null = null;
@@ -143,6 +144,15 @@ async function iniciar() {
   iniciarScheduler();
   startOperationWorker();
   await iniciarTodasLasSesiones();
+
+  for (const tenant of tenants.values()) {
+    aprovisionarAsistenteVapi(tenant).catch((err) => {
+      console.error(
+        `[vapi] Error aprovisionando voz para ${tenant.config.slug}:`,
+        err,
+      );
+    });
+  }
 
   const port = process.env.PORT || 8080;
   httpServer = app.listen(port, () => {

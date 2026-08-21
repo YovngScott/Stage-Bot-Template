@@ -442,9 +442,10 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
 
 /** Arranca las sesiones de WhatsApp de TODOS los tenants configurados. */
 export async function iniciarTodasLasSesiones(
-  tenants: Tenant[],
+  tenants?: Tenant[],
 ): Promise<void> {
-  for (const tenant of tenants) {
+  const lista = tenants ?? listarTenants();
+  for (const tenant of lista) {
     iniciarWhatsApp(tenant).catch((err) => {
       console.error(
         `[whatsapp:${tenant.config.slug}] Error iniciando la conexión (el servidor sigue activo):`,

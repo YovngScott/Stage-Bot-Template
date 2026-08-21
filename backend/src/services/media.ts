@@ -90,3 +90,50 @@ export async function analizarImagen(
     return "";
   }
 }
+
+/**
+ * Analiza e interpreta el contenido de un documento PDF (invitaciones, cotizaciones,
+ * facturas, contratos, volantes) utilizando la capa gratuita de Gemini Flash.
+ */
+export async function analizarDocumentoPdf(
+  buffer: Buffer,
+  mimeType = "application/pdf",
+  filename?: string,
+): Promise<string> {
+  try {
+    const base64Data = buffer.toString("base64");
+    const prompt = filename
+      ? `El remitente adjuntó el documento PDF "${filename}". Analiza minuciosamente el contenido del PDF y extrae los datos clave (fechas de eventos o reuniones, horarios, invitaciones, listas de precios, conceptos de facturas o términos de acuerdos) en un resumen conciso y estructurado en español.`
+      : "Se adjuntó este documento PDF. Analiza minuciosamente el contenido del PDF y extrae los datos clave (fechas de eventos/reuniones, horarios, invitaciones, cotizaciones o conceptos) en un resumen conciso y estructurado en español.";
+
+    const response = await conTimeout(
+      ai.models.generateContent({
+        model: config.gemini.model,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType,
+                  data: base64Data,
+                },
+              },
+              {
+                text: prompt,
+              },
+            ],
+          },
+        ],
+      }),
+      35000,
+      "analizarDocumentoPdf",
+    );
+
+    return response.text?.trim() ?? "";
+  } catch (error) {
+    console.error("[media] Error analizando PDF con Gemini:", error);
+    return "";
+  }
+}
+

@@ -11,7 +11,7 @@ import makeWASocket, {
   downloadMediaMessage,
   type WASocket,
 } from "@whiskeysockets/baileys";
-import { transcribirAudio, analizarImagen } from "./media.js";
+import { transcribirAudio, analizarImagen, analizarDocumentoPdf } from "./media.js";
 import { config } from "../lib/config.js";
 import type { Tenant } from "../lib/tenants.js";
 import { tenantBotActivo } from "../lib/tenants.js";
@@ -641,6 +641,26 @@ async function procesarMensajeEntrante(
     } catch (err) {
       console.error(`[whatsapp:${tenant.config.slug}] Error descargando imagen:`, err);
       texto = msg.message.imageMessage.caption || "[Imagen recibida: error al descargar]";
+    }
+  } else if (mediaType === "document" && msg.message.documentMessage) {
+    textoParaReglasHumano = msg.message.documentMessage.caption || undefined;
+    const isPdf = msg.message.documentMessage.mimetype?.includes("pdf") || msg.message.documentMessage.fileName?.toLowerCase().endsWith(".pdf");
+    if (isPdf) {
+      try {
+        const buffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
+        const filename = msg.message.documentMessage.fileName || "documento.pdf";
+        const analisisPdf = await analizarDocumentoPdf(buffer, "application/pdf", filename);
+        if (analisisPdf) {
+          texto = `[Documento PDF recibido en WhatsApp '${filename}']: ${analisisPdf}`;
+        } else {
+          texto = `[Documento PDF recibido: ${filename}]`;
+        }
+      } catch (err) {
+        console.error(`[whatsapp:${tenant.config.slug}] Error descargando PDF:`, err);
+        texto = `[Documento PDF recibido: error al descargar ${msg.message.documentMessage.fileName ?? ""}]`;
+      }
+    } else {
+      texto = msg.message.documentMessage.caption || `[Documento recibido: ${String(msg.message.documentMessage?.fileName ?? "sin nombre")}]`;
     }
   } else if (!texto) {
     texto =

@@ -10,15 +10,7 @@ import {
   type PerfilCorreo,
   type RespuestaCorreo,
 } from "./tipos.js";
-
-/**
- * Adaptador de Gmail. Reutiliza la MISMA conexión OAuth por tenant que ya usa
- * Google Calendar (tabla google_oauth_tokens): el cliente autoriza una vez y
- * sirve para las dos cosas.
- *
- * Ingesta por consultas programadas (list + get) en vez de webhooks: evita
- * depender de Pub/Sub y mantiene el consumo de cuota predecible.
- */
+import { analizarDocumentoPdf, analizarImagen } from "../../media.js";
 
 function leerEncabezado(headers: gmail_v1.Schema$MessagePartHeader[] | undefined, nombre: string): string | undefined {
   return headers?.find((h) => h.name?.toLowerCase() === nombre.toLowerCase())?.value ?? undefined;
@@ -45,10 +37,24 @@ function extraerCuerpo(payload: gmail_v1.Schema$MessagePart | undefined): string
   return "";
 }
 
-function extraerAdjuntos(payload: gmail_v1.Schema$MessagePart | undefined): Array<{ nombre: string; mimeType: string; tamano: number }> {
+interface PartAdjunto {
+  nombre: string;
+  mimeType: string;
+  tamano: number;
+  attachmentId?: string;
+}
+
+function extraerAdjuntos(payload: gmail_v1.Schema$MessagePart | undefined): PartAdjunto[] {
   if (!payload) return [];
   const own = payload.filename
-    ? [{ nombre: payload.filename, mimeType: payload.mimeType || "application/octet-stream", tamano: Number(payload.body?.size ?? 0) }]
+    ? [
+        {
+          nombre: payload.filename,
+          mimeType: payload.mimeType || "application/octet-stream",
+          tamano: Number(payload.body?.size ?? 0),
+          attachmentId: payload.body?.attachmentId ?? undefined,
+        },
+      ]
     : [];
   return [...own, ...(payload.parts ?? []).flatMap(extraerAdjuntos)];
 }
@@ -89,6 +95,48 @@ class ProveedorGmail implements EmailProvider {
     if (!mensaje.payload) return null;
 
     const headers = mensaje.payload.headers;
+    const adjuntos = extraerAdjuntos(mensaje.payload);
+    let textoAdjuntos = "";
+
+    // Descarga y analiza adjuntos PDF o imágenes pequeños (< 4MB) con Gemini
+    for (const adj of adjuntos.slice(0, 3)) {
+      if (!adj.attachmentId || adj.tamano > 4 * 1024 * 1024) continue;
+      const esPdf = adj.mimeType.includes("pdf") || adj.nombre.toLowerCase().endsWith(".pdf");
+      const esImagen = adj.mimeType.startsWith("image/");
+
+      if (esPdf || esImagen) {
+        try {
+          const attRes = await conReintentos(
+            () =>
+              this.gmail.users.messages.attachments.get({
+                userId: "me",
+                messageId: id,
+                id: adj.attachmentId!,
+              }),
+            "gmail",
+          );
+          if (attRes.data.data) {
+            const buffer = Buffer.from(attRes.data.data, "base64url");
+            if (esPdf) {
+              const analisis = await analizarDocumentoPdf(buffer, "application/pdf", adj.nombre);
+              if (analisis) {
+                textoAdjuntos += `\n\n[Contenido del PDF adjunto '${adj.nombre}']: ${analisis}`;
+              }
+            } else if (esImagen) {
+              const analisis = await analizarImagen(buffer, adj.mimeType);
+              if (analisis) {
+                textoAdjuntos += `\n\n[Imagen adjunta en el correo '${adj.nombre}']: ${analisis}`;
+              }
+            }
+          }
+        } catch (err) {
+          console.warn(`[gmail] No se pudo procesar adjunto ${adj.nombre}:`, err);
+        }
+      }
+    }
+
+    const cuerpoCompleto = (extraerCuerpo(mensaje.payload) + textoAdjuntos).slice(0, 5000);
+
     return {
       id: mensaje.id!,
       hiloId: mensaje.threadId!,
@@ -101,9 +149,8 @@ class ProveedorGmail implements EmailProvider {
         replyTo: leerEncabezado(headers, "Reply-To"),
       },
       messageId: leerEncabezado(headers, "Message-Id"),
-      adjuntos: extraerAdjuntos(mensaje.payload),
-      // 4000 caracteres bastan para clasificar y acotan el gasto de tokens.
-      cuerpo: extraerCuerpo(mensaje.payload).slice(0, 4000),
+      adjuntos: adjuntos.map(({ nombre, mimeType, tamano }) => ({ nombre, mimeType, tamano })),
+      cuerpo: cuerpoCompleto,
       recibidoEn: mensaje.internalDate
         ? new Date(Number(mensaje.internalDate)).toISOString()
         : new Date().toISOString(),
@@ -143,10 +190,6 @@ class ProveedorGmail implements EmailProvider {
   }
 
   async etiquetar(correoId: string, etiqueta: EtiquetaAsistente): Promise<void> {
-    // El seguimiento fiable vive en Supabase. Aplicar etiquetas al mensaje
-    // exigiría `gmail.modify`, un permiso mucho más amplio para una función
-    // puramente cosmética. Conservamos el método como no-op para que Gmail use
-    // solo lectura + composición y el resto del pipeline siga agnóstico.
     void correoId;
     void etiqueta;
   }
@@ -156,21 +199,13 @@ class ProveedorGmail implements EmailProvider {
       await conReintentos(() => this.gmail.users.drafts.get({ userId: "me", id: ref.borradorId }), "gmail");
     } catch (err: any) {
       const codigo = err?.code ?? err?.response?.status;
-      // 404: el borrador desapareció. Gmail lo borra tanto al enviarlo como al
-      // descartarlo, y no deja rastro que permita distinguirlo — así que se
-      // reporta resuelto sin afirmar cuál de las dos cosas fue.
       if (codigo === 404) return "resuelta";
       console.warn(`[asistente:gmail] No se pudo consultar el borrador ${ref.borradorId}:`, err);
       return "desconocido";
     }
-
-    // El borrador sigue ahí, pero el titular pudo haber respondido aparte
-    // (típico desde el móvil): lo que importa es si el hilo ya tiene una
-    // respuesta suya, no si el borrador quedó huérfano.
     return (await this.hiloYaRespondido(ref.hiloId)) ? "enviada" : "pendiente";
   }
 
-  /** ¿Hay algún mensaje con la etiqueta SENT en esta conversación? */
   private async hiloYaRespondido(hiloId: string): Promise<boolean> {
     if (!hiloId) return false;
     try {
@@ -184,7 +219,6 @@ class ProveedorGmail implements EmailProvider {
       return false;
     }
   }
-
 }
 
 /** Construye el adaptador de Gmail, o null si el tenant no tiene Google conectado. */

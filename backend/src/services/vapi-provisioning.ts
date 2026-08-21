@@ -48,62 +48,97 @@ export async function aprovisionarAsistenteVapi(
 - Habla exclusivamente en español.
 ${tenant.config.promptExtra ?? ""}`;
 
+  const assistantName = tenant.config.nombre.length > 35 
+    ? tenant.config.nombre.slice(0, 35) 
+    : tenant.config.nombre;
+
   const payload = {
-    name: `${tenant.config.nombre} (Voice Assistant)`,
+    name: assistantName,
+    serverUrl: webhookUrl,
     model: {
       provider: "openai",
       model: "gpt-4o-mini",
       messages: [{ role: "system", content: systemPrompt }],
       tools: [
         {
-          type: "api_request",
+          type: "function",
           async: false,
-          server: { url: webhookUrl, method: "POST" },
           function: {
             name: "consultar_catalogo",
-            description: "Consulta precios y disponibilidad en el catálogo",
+            description: "Consulta precios y disponibilidad en el catálogo de la empresa",
+            parameters: {
+              type: "object",
+              properties: {
+                consulta: { type: "string", description: "Nombre de la pieza, producto o servicio de reparación a consultar" },
+              },
+              required: ["consulta"],
+            },
           },
         },
         {
-          type: "api_request",
+          type: "function",
           async: false,
-          server: { url: webhookUrl, method: "POST" },
           function: {
             name: "verificar_disponibilidad",
-            description: "Verifica horarios libres en Google Calendar",
+            description: "Verifica horarios libres en el calendario",
+            parameters: {
+              type: "object",
+              properties: {
+                fecha: { type: "string", description: "Fecha a consultar en formato YYYY-MM-DD" },
+              },
+            },
           },
         },
         {
-          type: "api_request",
+          type: "function",
           async: false,
-          server: { url: webhookUrl, method: "POST" },
           function: {
             name: "agendar_cita",
             description: "Agenda una cita de servicio en Google Calendar",
+            parameters: {
+              type: "object",
+              properties: {
+                fecha: { type: "string", description: "Fecha de la cita YYYY-MM-DD" },
+                hora: { type: "string", description: "Hora de la cita HH:mm" },
+                nombre: { type: "string", description: "Nombre completo del cliente" },
+                servicio: { type: "string", description: "Tipo de reparación o servicio" },
+              },
+            },
           },
         },
         {
-          type: "api_request",
+          type: "function",
           async: false,
-          server: { url: webhookUrl, method: "POST" },
           function: {
             name: "reprogramar_cita",
-            description: "Cambia la fecha de una cita existente",
+            description: "Cambia la fecha o hora de una cita existente",
+            parameters: {
+              type: "object",
+              properties: {
+                nuevaFecha: { type: "string", description: "Nueva fecha YYYY-MM-DD" },
+                nuevaHora: { type: "string", description: "Nueva hora HH:mm" },
+              },
+            },
           },
         },
         {
-          type: "api_request",
+          type: "function",
           async: false,
-          server: { url: webhookUrl, method: "POST" },
           function: {
             name: "cancelar_cita",
-            description: "Cancela una cita agendada",
+            description: "Cancela una cita agendada previamente",
+            parameters: {
+              type: "object",
+              properties: {
+                motivo: { type: "string", description: "Motivo de la cancelación" },
+              },
+            },
           },
         },
       ],
     },
     transcriber: { provider: "deepgram", model: "nova-2", language: "es" },
-    voice: { provider: "11labs", voiceId: "paola", language: "es" },
+    voice: { provider: "11labs", voiceId: "paola" },
     firstMessage: `¡Hola! Gracias por comunicarse con ${tenant.config.nombre}. ¿En qué le puedo ayudar hoy?`,
   };
 
@@ -128,7 +163,7 @@ ${tenant.config.promptExtra ?? ""}`;
 
     const data = (await res.json()) as { id: string };
     console.log(
-      `[vapi] Asistente de Voz creado automáticamente en Vapi.ai para "${tenant.config.slug}": Assistant ID ${data.id}`,
+      `[vapi] ✅ Asistente de Voz CREADO EXITOSAMENTE en Vapi.ai para "${tenant.config.slug}": Assistant ID ${data.id}`,
     );
     return { assistantId: data.id };
   } catch (err) {

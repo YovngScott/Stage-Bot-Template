@@ -423,6 +423,21 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
       s.colas.set(chatId, siguiente);
     }
   });
+
+  sock.ev.on("call", async (callEvents) => {
+    for (const call of callEvents) {
+      if (call.status === "offer" && call.from) {
+        try {
+          await sock.rejectCall(call.id, call.from);
+          await sock.sendMessage(call.from, {
+            text: `👋 ¡Hola! Actualmente no puedo recibir llamadas de voz dentro de WhatsApp.\n\nPor favor, *envíame un mensaje de texto, nota de voz o foto por este chat*, o llámanos directamente a nuestro teléfono regular para hablar con la asistente de voz. ¡Con gusto te atenderé!`,
+          });
+        } catch (err) {
+          console.warn(`[whatsapp:${tenant.config.slug}] No se pudo enviar aviso de llamada:`, err);
+        }
+      }
+    }
+  });
 }
 
 /** Arranca las sesiones de WhatsApp de TODOS los tenants configurados. */

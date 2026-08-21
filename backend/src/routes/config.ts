@@ -109,6 +109,25 @@ configRouter.post("/envio-automatico", async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/:slug/config/reconnect-whatsapp
+ * Fuerza la desconexión y reconexión de la sesión de WhatsApp del tenant.
+ */
+configRouter.post("/reconnect-whatsapp", async (req: Request, res: Response) => {
+  if (!tienePlataforma(req)) {
+    return res.status(401).json({ error: "No autorizado." });
+  }
+  try {
+    const tenant = req.tenant!;
+    await desconectarWhatsApp(tenant);
+    await iniciarWhatsApp(tenant);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[config] Error reconectando WhatsApp:", err);
+    res.status(500).json({ error: "No se pudo reconectar WhatsApp." });
+  }
+});
+
+/**
  * POST /api/:slug/config/decommission
  * Baja operativa desde Owner Console: detiene las respuestas inmediatamente,
  * invalida la sesión de WhatsApp y borra sus credenciales del volumen. No

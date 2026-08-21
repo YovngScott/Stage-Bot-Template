@@ -11,7 +11,17 @@ export const voiceRouter = Router({ mergeParams: true });
  * Admite:
  * 1. Formato Vapi.ai (POST /api/:slug/voice/webhook)
  * 2. Formato Genérico (POST /api/:slug/voice/tool-call)
+ * 3. Verificación de estado (GET /api/:slug/voice/webhook)
  */
+
+voiceRouter.get("/webhook", (req: Request, res: Response) => {
+  return res.json({
+    ok: true,
+    servicio: "voice-webhook",
+    tenant: req.tenant?.config.slug,
+    mensaje: "El endpoint de llamadas está activo. Los bots de voz (Vapi/Retell) deben enviar peticiones HTTP POST.",
+  });
+});
 
 voiceRouter.post("/webhook", async (req: Request, res: Response) => {
   const tenant = req.tenant!;
@@ -76,6 +86,16 @@ voiceRouter.post("/webhook", async (req: Request, res: Response) => {
 });
 
 /** Endpoint para invocar una herramienta específica directamente por URL */
+voiceRouter.get("/tools/:toolName", (req: Request, res: Response) => {
+  return res.json({
+    ok: true,
+    servicio: "voice-tools",
+    tool: req.params.toolName,
+    tenant: req.tenant?.config.slug,
+    mensaje: `Endpoint de ${req.params.toolName} activo. Enviar petición POST para ejecutar.`,
+  });
+});
+
 voiceRouter.post("/tools/:toolName", async (req: Request, res: Response) => {
   const tenant = req.tenant!;
   const toolName = req.params.toolName;

@@ -1,7 +1,6 @@
 import express from "express";
 import cors from "cors";
 import { spawn, type ChildProcess } from "node:child_process";
-import { config } from "./lib/config.js";
 import { cargarTenants, listarTenants } from "./lib/tenants.js";
 import { resolverTenant } from "./lib/tenantMiddleware.js";
 import { serviciosRouter } from "./routes/servicios.js";
@@ -13,6 +12,7 @@ import { authRouter } from "./routes/auth.js";
 import { configRouter } from "./routes/config.js";
 import { asistenteRouter } from "./routes/asistente.js";
 import { operationsRouter } from "./routes/operations.js";
+import { voiceRouter } from "./routes/voice.js";
 import { detenerTodasLasSesiones, iniciarTodasLasSesiones, obtenerEstadoWhatsApp } from "./services/baileys.js";
 import { detenerScheduler, iniciarScheduler } from "./services/scheduler.js";
 import { startOperationWorker, stopOperationWorker } from "./services/operation-worker.js";
@@ -22,19 +22,18 @@ let dashboardProcess: ChildProcess | null = null;
 let httpServer: ReturnType<typeof app.listen> | null = null;
 let apagando = false;
 
-// Fly.io termina el TLS y reenvía por HTTP interno con X-Forwarded-Proto: al
-// confiar en el proxy, req.protocol refleja "https" real.
+// Fly.io termina el TLS y reenvía por HTTP interno con X-Forwarded-Proto
 app.set("trust proxy", true);
 
 app.use(cors());
-app.use(express.json({
-  limit: "2mb",
-  verify: (req, _res, buffer) => {
-    // Meta firma los bytes exactos del webhook. Se conserva una copia para
-    // verificarla sin impedir que el resto de rutas reciba JSON normal.
-    (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
-  },
-}));
+app.use(
+  express.json({
+    limit: "2mb",
+    verify: (req, _res, buffer) => {
+      (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+    },
+  }),
+);
 
 app.get("/health", (_req, res) => {
   const estados = listarTenants().map((tenant) => obtenerEstadoWhatsApp(tenant.id));
@@ -50,8 +49,7 @@ app.get("/health", (_req, res) => {
   });
 });
 
-// Todas las rutas de negocio van bajo /api/:slug/... — resolverTenant adjunta
-// req.tenant o responde 404 si el slug no existe.
+// Todas las rutas de negocio van bajo /api/:slug/...
 app.use("/api/:slug/auth", resolverTenant, authRouter);
 app.use("/api/:slug/servicios", resolverTenant, serviciosRouter);
 app.use("/api/:slug/whatsapp", resolverTenant, whatsappRouter);
@@ -59,23 +57,14 @@ app.use("/api/:slug/empleados", resolverTenant, empleadosRouter);
 app.use("/api/:slug/calendar", resolverTenant, calendarRouter);
 app.use("/api/:slug/reportes", resolverTenant, reportesRouter);
 app.use("/api/:slug/config", resolverTenant, configRouter);
-// Módulo de asistente virtual (triaje de correo). Sus rutas rechazan por sí
-// mismas a los tenants que no son de tipo "assistant".
 app.use("/api/:slug/asistente", resolverTenant, asistenteRouter);
 app.use("/api/:slug/operations", resolverTenant, operationsRouter);
-// URL FIJA (sin :slug) para el callback de OAuth de Google — Google siempre
-// redirige a la misma "Authorized redirect URI"; el tenant se recupera del
-// `state` dentro de routes/calendar.ts, no del path. Montamos el mismo router
-// aquí también (sin resolverTenant); solo su ruta /oauth-callback no
-// requiere req.tenant, así que es la única que funciona por esta vía.
+app.use("/api/:slug/voice", resolverTenant, voiceRouter);
+
 app.use("/api/calendar", calendarRouter);
-// Mismo motivo para Microsoft: su "redirect URI" registrada en Entra ID es
-// fija, sin :slug. El tenant se recupera del `state` dentro del router.
 app.use("/api/asistente", asistenteRouter);
 
-// Cada app dedicada de Fly sirve su dashboard y su API desde el mismo
-// hostname. Nitro escucha solamente dentro de la Machine; Express conserva el
-// puerto público y reenvía aquí toda ruta que no sea API.
+// Cada app dedicada de Fly sirve su dashboard y su API desde el mismo hostname
 app.use(async (req, res, next) => {
   const dashboardOrigin = process.env.DASHBOARD_ORIGIN?.trim();
   if (!dashboardOrigin || req.path.startsWith("/api/")) return next();
@@ -148,22 +137,17 @@ async function iniciar() {
       "[index] No hay tenants configurados (config/tenants/*.json). El servidor arranca igual, pero sin ninguna sesión de WhatsApp.",
     );
   } else {
-    console.log(`[index] Tenants cargados: ${[...tenants.values()].map((t) => t.config.slug).join(", ")}`);
+    console.log(`[index] Tenants cargados: ${Array.from(tenants.values()).map((t) => t.config.slug).join(", ")}`);
   }
 
-  httpServer = app.listen(config.port, () => {
-    console.log(`🔧 Stage Bot Template — API en http://localhost:${config.port}`);
-    console.log(`   Rutas por cliente: /api/<slug>/...  (ej. /api/${[...tenants.keys()][0] ?? "mi-cliente"}/whatsapp/status)`);
-  });
-
-  // Si WhatsApp falla al iniciar para un tenant NO tumbamos el servidor HTTP
-  // completo: /health y el resto de tenants deben seguir vivos.
-  await iniciarTodasLasSesiones([...tenants.values()]);
   iniciarScheduler();
   startOperationWorker();
+  await iniciarTodasLasSesiones();
+
+  const port = process.env.PORT || 8080;
+  httpServer = app.listen(port, () => {
+    console.log(`[index] Servidor escuchando en puerto ${port}`);
+  });
 }
 
-iniciar().catch((err) => {
-  console.error("[index] Error fatal iniciando el servidor:", err);
-  process.exit(1);
-});
+void iniciar();

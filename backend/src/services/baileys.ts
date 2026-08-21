@@ -8,8 +8,10 @@ import makeWASocket, {
   fetchLatestWaWebVersion,
   DisconnectReason,
   Browsers,
+  downloadMediaMessage,
   type WASocket,
 } from "@whiskeysockets/baileys";
+import { transcribirAudio, analizarImagen } from "./media.js";
 import { config } from "../lib/config.js";
 import type { Tenant } from "../lib/tenants.js";
 import { tenantBotActivo } from "../lib/tenants.js";
@@ -603,16 +605,48 @@ async function procesarMensajeEntrante(
       : msg.message.documentMessage ? "document"
         : msg.message.locationMessage ? "location"
           : "text";
-  const texto: string | undefined =
+  let texto: string | undefined =
     msg.message.conversation ??
     msg.message.extendedTextMessage?.text ??
-    msg.message.imageMessage?.caption ??
-    msg.message.documentMessage?.caption ??
-    (msg.message.audioMessage ? "[Audio recibido: requiere transcripción o revisión humana]" : undefined) ??
-    (msg.message.imageMessage ? "[Imagen recibida sin descripción]" : undefined) ??
-    (msg.message.documentMessage ? `[Documento recibido: ${String(msg.message.documentMessage?.fileName ?? "sin nombre")}]` : undefined) ??
-    (msg.message.locationMessage ? `[Ubicación recibida: ${Number(msg.message.locationMessage?.degreesLatitude)}, ${Number(msg.message.locationMessage?.degreesLongitude)}]` : undefined) ??
     undefined;
+
+  if (mediaType === "audio" && msg.message.audioMessage) {
+    try {
+      const buffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
+      const mimeType = msg.message.audioMessage.mimetype || "audio/ogg";
+      const transcripcion = await transcribirAudio(buffer, mimeType);
+      if (transcripcion) {
+        texto = `[Nota de voz recibida por WhatsApp]: "${transcripcion}"`;
+      } else {
+        texto = "[Audio recibido: no se pudo transcribir el contenido]";
+      }
+    } catch (err) {
+      console.error(`[whatsapp:${tenant.config.slug}] Error descargando audio:`, err);
+      texto = "[Audio recibido: error al descargar]";
+    }
+  } else if (mediaType === "image" && msg.message.imageMessage) {
+    try {
+      const buffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
+      const mimeType = msg.message.imageMessage.mimetype || "image/jpeg";
+      const caption = msg.message.imageMessage.caption;
+      const descripcionVisual = await analizarImagen(buffer, mimeType, caption);
+      if (descripcionVisual) {
+        texto = `[Imagen enviada por el cliente por WhatsApp]: ${descripcionVisual}`;
+      } else {
+        texto = caption || "[Imagen recibida sin descripción]";
+      }
+    } catch (err) {
+      console.error(`[whatsapp:${tenant.config.slug}] Error descargando imagen:`, err);
+      texto = msg.message.imageMessage.caption || "[Imagen recibida: error al descargar]";
+    }
+  } else if (!texto) {
+    texto =
+      msg.message.imageMessage?.caption ??
+      msg.message.documentMessage?.caption ??
+      (msg.message.documentMessage ? `[Documento recibido: ${String(msg.message.documentMessage?.fileName ?? "sin nombre")}]` : undefined) ??
+      (msg.message.locationMessage ? `[Ubicación recibida: ${Number(msg.message.locationMessage?.degreesLatitude)}, ${Number(msg.message.locationMessage?.degreesLongitude)}]` : undefined) ??
+      undefined;
+  }
 
   if (!texto) return;
 

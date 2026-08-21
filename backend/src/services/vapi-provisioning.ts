@@ -8,7 +8,7 @@ import type { Tenant } from "../lib/tenants.js";
  * esta función genera automáticamente el Asistente en Vapi.ai con:
  * - El System Prompt poblado con los datos reales de la empresa (nombre, horario, dirección, etc.).
  * - Sus 5 herramientas vinculadas a la URL del webhook en la nube (`/api/:slug/voice/webhook`).
- * - Transcriptor en español (Deepgram) y Voz sintética.
+ * - Transcriptor en español (Deepgram) y Voz sintética en español.
  */
 export async function aprovisionarAsistenteVapi(
   tenant: Tenant,
@@ -138,7 +138,7 @@ ${tenant.config.promptExtra ?? ""}`;
       ],
     },
     transcriber: { provider: "deepgram", model: "nova-2", language: "es" },
-    voice: { provider: "11labs", voiceId: "paola" },
+    voice: { provider: "azure", voiceId: "es-ES-ElviraNeural" },
     firstMessage: `¡Hola! Gracias por comunicarse con ${tenant.config.nombre}. ¿En qué le puedo ayudar hoy?`,
   };
 

@@ -36,8 +36,6 @@ function ConexionesPage() {
 
   const empleados = data?.employees ?? [];
   const canal = data?.tenant.canal ?? "mensajes";
-  const TarjetaDeCanal =
-    canal === "llamadas" ? CallBotCard : canal === "asistente" ? AssistantBotCard : WhatsAppCard;
 
   async function agregar(e: React.FormEvent) {
     e.preventDefault();
@@ -82,8 +80,10 @@ function ConexionesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 lg:grid-cols-3">
-        <TarjetaDeCanal />
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {canal === "asistente" && <AssistantBotCard />}
+        {canal === "llamadas" && <CallBotCard />}
+        <WhatsAppCard />
         <GoogleCalendarCard />
 
         {/* Empleados & alertas */}

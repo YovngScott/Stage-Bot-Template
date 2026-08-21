@@ -5,8 +5,9 @@ import pino from "pino";
 import QRCode from "qrcode";
 import makeWASocket, {
   useMultiFileAuthState,
-  fetchLatestBaileysVersion,
+  fetchLatestWaWebVersion,
   DisconnectReason,
+  Browsers,
   type WASocket,
 } from "@whiskeysockets/baileys";
 import { config } from "../lib/config.js";
@@ -149,9 +150,11 @@ function programarReconexion(
   if (reiniciarIntentos) sesion.reconexiones = 0;
 
   const intento = sesion.reconexiones++;
-  const base = Math.min(3_000 * 2 ** Math.min(intento, 7), 5 * 60_000);
-  const espera =
-    base + Math.floor(Math.random() * Math.min(base * 0.25, 5_000));
+  // Si la sesión no está conectada (esperando QR / código), reconectamos en 2s para que el QR refresque de inmediato
+  const espera = !sesion.estado.conectado
+    ? 2000
+    : Math.min(3_000 * 2 ** Math.min(intento, 7), 5 * 60_000) +
+      Math.floor(Math.random() * Math.min(3000 * 0.25, 5_000));
   console.warn(
     `[whatsapp:${tenant.config.slug}] Reintentando conexión en ${Math.ceil(espera / 1000)}s (intento ${intento + 1}).`,
   );
@@ -173,21 +176,41 @@ export async function solicitarCodigoEmparejamiento(
   tenantId: string,
   numero: string,
 ): Promise<string> {
-  const sesion = sesiones.get(tenantId);
+  let sesion = sesiones.get(tenantId);
   if (sesion?.tenant.config.whatsapp.provider === "meta_cloud") {
     throw new Error("Meta WhatsApp Cloud API no usa QR ni código de emparejamiento.");
   }
-  if (!sesion?.sock) {
-    throw new Error(
-      "El servidor de WhatsApp de este cliente todavía no está listo. Espera unos segundos e intenta de nuevo.",
-    );
+  let limpio = numero.replace(/[^\d]/g, "");
+  // Si el usuario introduce 10 dígitos de RD (809, 829, 849), anteponemos el 1 automáticamente
+  if (limpio.length === 10 && (limpio.startsWith("809") || limpio.startsWith("829") || limpio.startsWith("849"))) {
+    limpio = "1" + limpio;
   }
-  const limpio = numero.replace(/[^\d]/g, "");
   if (limpio.length < 10) {
     throw new Error(
       "Número inválido. Escribe el número completo con código de país, ej: 18498636074.",
     );
   }
+
+  // Si el socket no está listo, lo despertamos inmediatamente sin esperar el backoff
+  if (!sesion?.sock && sesion?.tenant) {
+    if (sesion.temporizadorReconexion) {
+      clearTimeout(sesion.temporizadorReconexion);
+      sesion.temporizadorReconexion = null;
+    }
+    await iniciarWhatsApp(sesion.tenant).catch(() => {});
+    for (let i = 0; i < 20; i++) {
+      sesion = sesiones.get(tenantId);
+      if (sesion?.sock) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+
+  if (!sesion?.sock) {
+    throw new Error(
+      "El servidor de WhatsApp no pudo conectar. Espera unos segundos e intenta de nuevo.",
+    );
+  }
+
   const codigo = await sesion.sock.requestPairingCode(limpio);
   sesion.estado.pairingCode = codigo;
   sesion.estado.actualizadoEn = Date.now();
@@ -239,10 +262,13 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
 
   const authDir = authDirDe(tenant);
   let authState: Awaited<ReturnType<typeof useMultiFileAuthState>>;
-  let version: Awaited<ReturnType<typeof fetchLatestBaileysVersion>>["version"];
+  let version: [number, number, number] = [2, 3000, 1045737606];
   try {
     authState = await useMultiFileAuthState(authDir);
-    ({ version } = await fetchLatestBaileysVersion());
+    const waVer = await fetchLatestWaWebVersion().catch(() => null);
+    if (waVer?.version) {
+      version = waVer.version as [number, number, number];
+    }
   } catch (error) {
     sesion.iniciando = false;
     programarReconexion(tenant, generacion);
@@ -253,7 +279,9 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
     version,
     auth: authState.state,
     logger,
-    browser: [tenant.config.nombreBot, "Chrome", "1.0.0"],
+    browser: Browsers.ubuntu("Chrome"),
+    syncFullHistory: false,
+    printQRInTerminal: false,
   });
 
   const actualAlCrear = sesiones.get(tenant.id);
@@ -311,9 +339,25 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
         return;
       }
 
-      if (statusCode === DisconnectReason.loggedOut) {
+      const noAutenticado = !s.estado.conectado && (statusCode === DisconnectReason.loggedOut || statusCode === 401);
+      if (noAutenticado) {
         console.warn(
-          `[whatsapp:${tenant.config.slug}] Sesión inválida (401). Borrando credenciales y reiniciando limpio…`,
+          `[whatsapp:${tenant.config.slug}] Sesión cerrada o no autorizada (código ${statusCode ?? "desconocido"}). Borrando credenciales temporales…`,
+        );
+        s.estado.qrDataUrl = null;
+        s.estado.pairingCode = null;
+        try {
+          await fs.promises.rm(authDir, { recursive: true, force: true });
+        } catch (err) {
+          console.error(
+            `[whatsapp:${tenant.config.slug}] No se pudo borrar la carpeta de sesión:`,
+            err,
+          );
+        }
+        programarReconexion(tenant, generacion, true);
+      } else if (statusCode === DisconnectReason.loggedOut) {
+        console.warn(
+          `[whatsapp:${tenant.config.slug}] Sesión cerrada en el teléfono (401). Borrando credenciales…`,
         );
         s.estado.qrDataUrl = null;
         s.estado.pairingCode = null;

@@ -14,7 +14,7 @@ import makeWASocket, {
 import { transcribirAudio, analizarImagen, analizarDocumentoPdf } from "./media.js";
 import { config } from "../lib/config.js";
 import type { Tenant } from "../lib/tenants.js";
-import { tenantBotActivo } from "../lib/tenants.js";
+import { tenantBotActivo, listarTenants } from "../lib/tenants.js";
 import {
   actualizarEstadoCliente,
   obtenerOCrearCliente,

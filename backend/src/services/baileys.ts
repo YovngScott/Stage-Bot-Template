@@ -609,6 +609,7 @@ async function procesarMensajeEntrante(
     msg.message.conversation ??
     msg.message.extendedTextMessage?.text ??
     undefined;
+  let textoParaReglasHumano: string | undefined = texto;
 
   if (mediaType === "audio" && msg.message.audioMessage) {
     try {
@@ -617,6 +618,7 @@ async function procesarMensajeEntrante(
       const transcripcion = await transcribirAudio(buffer, mimeType);
       if (transcripcion) {
         texto = `[Nota de voz recibida por WhatsApp]: "${transcripcion}"`;
+        textoParaReglasHumano = transcripcion;
       } else {
         texto = "[Audio recibido: no se pudo transcribir el contenido]";
       }
@@ -625,6 +627,7 @@ async function procesarMensajeEntrante(
       texto = "[Audio recibido: error al descargar]";
     }
   } else if (mediaType === "image" && msg.message.imageMessage) {
+    textoParaReglasHumano = msg.message.imageMessage.caption || undefined;
     try {
       const buffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
       const mimeType = msg.message.imageMessage.mimetype || "image/jpeg";
@@ -646,6 +649,7 @@ async function procesarMensajeEntrante(
       (msg.message.documentMessage ? `[Documento recibido: ${String(msg.message.documentMessage?.fileName ?? "sin nombre")}]` : undefined) ??
       (msg.message.locationMessage ? `[Ubicación recibida: ${Number(msg.message.locationMessage?.degreesLatitude)}, ${Number(msg.message.locationMessage?.degreesLongitude)}]` : undefined) ??
       undefined;
+    textoParaReglasHumano = msg.message.imageMessage?.caption ?? msg.message.documentMessage?.caption ?? undefined;
   }
 
   if (!texto) return;
@@ -758,7 +762,7 @@ async function procesarMensajeEntrante(
     await sock.sendPresenceUpdate("composing", remoteJid).catch(() => {});
   }
 
-  if (solicitaAtencionHumana(texto)) {
+  if (textoParaReglasHumano && solicitaAtencionHumana(textoParaReglasHumano)) {
     await actualizarEstadoCliente(tenant.id, cliente.id, "requiere_humano");
     const respuestaTransferencia = RESPUESTA_TRANSFERENCIA_TPL(
       tenant.config.nombre,

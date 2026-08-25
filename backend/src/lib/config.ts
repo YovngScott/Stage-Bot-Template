@@ -55,6 +55,14 @@ export const config = {
     oauthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID ?? "",
     oauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET ?? "",
     oauthRedirectUri: process.env.GOOGLE_OAUTH_REDIRECT_URI ?? "",
+    insuranceRedirectUri: process.env.GOOGLE_INSURANCE_REDIRECT_URI ?? "",
+  },
+
+  insurance: {
+    integrationUrl:
+      process.env.DOMINGUEZ_INSURANCE_URL ??
+      "https://dominguez.vercel.app/api/seguro-automatizacion",
+    sharedSecret: process.env.DOMINGUEZ_INSURANCE_SECRET ?? "",
   },
 
   // Microsoft Entra ID (Azure AD): UNA sola app registrada sirve para TODOS los

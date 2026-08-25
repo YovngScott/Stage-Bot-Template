@@ -6,6 +6,7 @@ import { notificarEmpleados } from "./notificaciones.js";
 import { formatearReporteTexto, generarDatosReporteDiario } from "./reportes.js";
 import { ejecutarTriaje, responderComandoWhatsApp } from "./asistente/triaje.js";
 import { localClock, shouldRunAt } from "./tenant-schedule.js";
+import { pollInsuranceEmails } from "./insurance-email.js";
 
 /**
  * Un reloj UTC por minuto evalúa la hora LOCAL de cada tenant. La reclamación
@@ -13,6 +14,10 @@ import { localClock, shouldRunAt } from "./tenant-schedule.js";
  */
 export function iniciarScheduler(): void {
   cron.schedule("* * * * *", () => void ejecutarTrabajosLocales(new Date()), { timezone: "UTC" });
+  cron.schedule("* * * * *", () => {
+    const tenant = listarTenants().find((item) => item.config.slug === "dominguez-auto-pintura");
+    if (tenant) void pollInsuranceEmails(tenant).catch((error) => console.error("[seguros] Error de polling:", error));
+  }, { timezone: "UTC" });
   void ejecutarTrabajosLocales(new Date());
   programarTriajeAsistentes();
   console.log("[scheduler] Horarios por tenant activos: zona local, días laborables, feriados y horas silenciosas.");

@@ -15,6 +15,7 @@ import { Route as AppArchivosRouteImport } from './routes/_app.archivos'
 import { Route as AppAsistenteRouteImport } from './routes/_app.asistente'
 import { Route as AppChatsRouteImport } from './routes/_app.chats'
 import { Route as AppConexionesRouteImport } from './routes/_app.conexiones'
+import { Route as AppSegurosRouteImport } from './routes/_app.seguros'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -45,6 +46,11 @@ const AppConexionesRoute = AppConexionesRouteImport.update({
   path: '/conexiones',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSegurosRoute = AppSegurosRouteImport.update({
+  id: '/seguros',
+  path: '/seguros',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -52,12 +58,14 @@ export interface FileRoutesByFullPath {
   '/asistente': typeof AppAsistenteRoute
   '/chats': typeof AppChatsRoute
   '/conexiones': typeof AppConexionesRoute
+  '/seguros': typeof AppSegurosRoute
 }
 export interface FileRoutesByTo {
   '/archivos': typeof AppArchivosRoute
   '/asistente': typeof AppAsistenteRoute
   '/chats': typeof AppChatsRoute
   '/conexiones': typeof AppConexionesRoute
+  '/seguros': typeof AppSegurosRoute
   '/': typeof AppIndexRoute
 }
 export interface FileRoutesById {
@@ -67,13 +75,15 @@ export interface FileRoutesById {
   '/_app/asistente': typeof AppAsistenteRoute
   '/_app/chats': typeof AppChatsRoute
   '/_app/conexiones': typeof AppConexionesRoute
+  '/_app/seguros': typeof AppSegurosRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/archivos' | '/asistente' | '/chats' | '/conexiones'
+  fullPaths:
+    '/' | '/archivos' | '/asistente' | '/chats' | '/conexiones' | '/seguros'
   fileRoutesByTo: FileRoutesByTo
-  to: '/archivos' | '/asistente' | '/chats' | '/conexiones' | '/'
+  to: '/archivos' | '/asistente' | '/chats' | '/conexiones' | '/seguros' | '/'
   id:
     | '__root__'
     | '/_app'
@@ -81,6 +91,7 @@ export interface FileRouteTypes {
     | '/_app/asistente'
     | '/_app/chats'
     | '/_app/conexiones'
+    | '/_app/seguros'
     | '/_app/'
   fileRoutesById: FileRoutesById
 }
@@ -132,6 +143,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppConexionesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/seguros': {
+      id: '/_app/seguros'
+      path: '/seguros'
+      fullPath: '/seguros'
+      preLoaderRoute: typeof AppSegurosRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -140,6 +158,7 @@ interface AppRouteChildren {
   AppAsistenteRoute: typeof AppAsistenteRoute
   AppChatsRoute: typeof AppChatsRoute
   AppConexionesRoute: typeof AppConexionesRoute
+  AppSegurosRoute: typeof AppSegurosRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -148,6 +167,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAsistenteRoute: AppAsistenteRoute,
   AppChatsRoute: AppChatsRoute,
   AppConexionesRoute: AppConexionesRoute,
+  AppSegurosRoute: AppSegurosRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

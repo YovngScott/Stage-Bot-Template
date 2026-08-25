@@ -13,6 +13,7 @@ import { configRouter } from "./routes/config.js";
 import { asistenteRouter } from "./routes/asistente.js";
 import { operationsRouter } from "./routes/operations.js";
 import { voiceRouter } from "./routes/voice.js";
+import { insuranceRouter } from "./routes/insurance.js";
 import { detenerTodasLasSesiones, iniciarTodasLasSesiones, obtenerEstadoWhatsApp } from "./services/baileys.js";
 import { detenerScheduler, iniciarScheduler } from "./services/scheduler.js";
 import { startOperationWorker, stopOperationWorker } from "./services/operation-worker.js";
@@ -29,7 +30,7 @@ app.set("trust proxy", true);
 app.use(cors());
 app.use(
   express.json({
-    limit: "2mb",
+    limit: "20mb",
     verify: (req, _res, buffer) => {
       (req as typeof req & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
     },
@@ -61,9 +62,11 @@ app.use("/api/:slug/config", resolverTenant, configRouter);
 app.use("/api/:slug/asistente", resolverTenant, asistenteRouter);
 app.use("/api/:slug/operations", resolverTenant, operationsRouter);
 app.use("/api/:slug/voice", resolverTenant, voiceRouter);
+app.use("/api/:slug/insurance", resolverTenant, insuranceRouter);
 
 app.use("/api/calendar", calendarRouter);
 app.use("/api/asistente", asistenteRouter);
+app.use("/api/insurance", insuranceRouter);
 
 // Cada app dedicada de Fly sirve su dashboard y su API desde el mismo hostname
 app.use(async (req, res, next) => {

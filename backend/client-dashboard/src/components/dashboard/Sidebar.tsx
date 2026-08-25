@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { BarChart3, Plug, MessageSquare, Phone, Bot, Folder, Zap, LogOut, Mail } from "lucide-react";
+import { BarChart3, Plug, MessageSquare, Phone, Bot, Folder, Zap, LogOut, Mail, ShieldCheck } from "lucide-react";
 import type { TenantInfo } from "@/hooks/useTenantData";
 import { configDeCanal, esAsistente } from "@/lib/canales";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,7 +26,7 @@ export function AppSidebar({
   // Un asistente de correo no tiene catálogo ni embudo de chats: su panel es
   // el triaje de la bandeja. Mostrarle "Archivos" o "Estados de chats" sería
   // llevarlo a pantallas vacías.
-  const navItems = esAsistente(tenant?.canal)
+  const baseNavItems = esAsistente(tenant?.canal)
     ? ([
         { to: "/asistente", label: "Asistente", icon: Mail },
         { to: "/", label: "Estadísticas", icon: BarChart3 },
@@ -38,6 +38,9 @@ export function AppSidebar({
         { to: "/chats", label: canalCfg.navChats, icon: ICONO_CHATS_POR_CANAL[canalCfg.id] },
         { to: "/archivos", label: "Archivos", icon: Folder },
       ] as const);
+  const navItems = tenant?.slug === "dominguez-auto-pintura"
+    ? [...baseNavItems, { to: "/seguros", label: "Automatización de seguros", icon: ShieldCheck } as const]
+    : baseNavItems;
 
   return (
     <aside className="hidden md:flex md:w-72 lg:w-80 shrink-0 flex-col border-r border-white/5 bg-sidebar/80 backdrop-blur-xl">

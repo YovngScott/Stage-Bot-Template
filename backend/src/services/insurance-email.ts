@@ -15,8 +15,33 @@ interface PendingOauth {
   expiresAt: number;
 }
 
-const pendingOauth = new Map<string, PendingOauth>();
 const activePolls = new Set<string>();
+
+function oauthStateSecret() {
+  if (!config.credenciales.secreto) throw new Error("Falta CREDENCIALES_SECRET.");
+  return config.credenciales.secreto;
+}
+
+function encodeOauthState(payload: PendingOauth) {
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", oauthStateSecret()).update(encoded).digest("base64url");
+  return `${encoded}.${signature}`;
+}
+
+function decodeOauthState(state: string): PendingOauth {
+  const [encoded, signature] = state.split(".");
+  if (!encoded || !signature) throw new Error("Enlace OAuth inválido o vencido.");
+  const expected = crypto.createHmac("sha256", oauthStateSecret()).update(encoded).digest();
+  const received = Buffer.from(signature, "base64url");
+  if (received.length !== expected.length || !crypto.timingSafeEqual(received, expected)) {
+    throw new Error("Enlace OAuth inválido o vencido.");
+  }
+  const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as PendingOauth;
+  if (!payload.tenantId || !payload.slug || !payload.redirectUri || payload.expiresAt < Date.now()) {
+    throw new Error("Enlace OAuth inválido o vencido.");
+  }
+  return payload;
+}
 
 function oauthClient(redirectUri: string) {
   if (!config.google.oauthClientId || !config.google.oauthClientSecret) {
@@ -33,8 +58,7 @@ export function insuranceRedirectUri(req: { get(name: string): string | undefine
 
 export function createInsuranceAuthUrl(tenant: Tenant, label: string, loginHint: string, redirectUri: string) {
   if (!cifradoDisponible()) throw new Error("Falta CREDENCIALES_SECRET; no se guardará OAuth sin cifrar.");
-  const state = crypto.randomBytes(32).toString("base64url");
-  pendingOauth.set(state, {
+  const state = encodeOauthState({
     tenantId: tenant.id,
     slug: tenant.config.slug,
     label: label.trim() || "Correo de seguros",
@@ -52,9 +76,7 @@ export function createInsuranceAuthUrl(tenant: Tenant, label: string, loginHint:
 }
 
 export async function completeInsuranceOauth(state: string, code: string) {
-  const pending = pendingOauth.get(state);
-  pendingOauth.delete(state);
-  if (!pending || pending.expiresAt < Date.now()) throw new Error("Enlace OAuth inválido o vencido.");
+  const pending = decodeOauthState(state);
   const client = oauthClient(pending.redirectUri);
   const { tokens } = await client.getToken(code);
   if (!tokens.refresh_token) throw new Error("Google no devolvió refresh_token; vuelve a autorizar la cuenta.");

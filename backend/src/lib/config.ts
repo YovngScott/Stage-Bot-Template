@@ -61,7 +61,7 @@ export const config = {
   insurance: {
     integrationUrl:
       process.env.DOMINGUEZ_INSURANCE_URL ??
-      "https://dominguez.vercel.app/api/seguro-automatizacion",
+      "https://dominguez.vercel.app/api/procesar-seguro",
     sharedSecret: process.env.DOMINGUEZ_INSURANCE_SECRET ?? "",
   },
 

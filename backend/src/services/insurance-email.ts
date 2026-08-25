@@ -114,7 +114,7 @@ function attachmentParts(part: gmail_v1.Schema$MessagePart | undefined): gmail_v
 
 async function integration(action: string, init: RequestInit = {}, query = "") {
   if (!config.insurance.sharedSecret) throw new Error("Falta DOMINGUEZ_INSURANCE_SECRET.");
-  const url = `${config.insurance.integrationUrl}?action=${encodeURIComponent(action)}${query}`;
+  const url = `${config.insurance.integrationUrl}?action=${encodeURIComponent(`insurance_${action}`)}${query}`;
   const response = await fetch(url, {
     ...init,
     headers: {

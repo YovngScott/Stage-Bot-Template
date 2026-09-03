@@ -238,7 +238,7 @@
   "provisionJobId": "06517474-7619-4748-8f4e-c84012f14ea8",
   "lastError": "[2026-09-03T21:03:58.395Z] ERROR CRÍTICO: La app no superó el health check: fetch failed",
   "createdAt": "2026-09-03T14:48:12.274Z",
-  "updatedAt": "2026-09-03T21:13:10.110Z",
+  "updatedAt": "2026-09-03T21:13:11.946Z",
   "publishedAt": null,
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

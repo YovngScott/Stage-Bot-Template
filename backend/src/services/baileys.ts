@@ -23,6 +23,8 @@ import {
   obtenerHistorialOptimizado,
 } from "./clientes.js";
 import { generarRespuesta } from "./ia.js";
+import { generarRespuestaGemini } from "./gemini.js";
+import { systemPrompt } from "./prompt.js";
 import { conTimeout } from "../lib/timeout.js";
 import { responderComandoWhatsApp } from "./asistente/triaje.js";
 import { queueFailure, recordMetric } from "./operations.js";
@@ -627,17 +629,15 @@ async function procesarMensajeEntrante(
     undefined;
   let textoParaReglasHumano: string | undefined = texto;
 
+  let mediaBuffer: Buffer | undefined;
+  let mimeType: string | undefined;
+
   if (mediaType === "audio" && msg.message.audioMessage) {
     try {
-      const buffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
-      const mimeType = msg.message.audioMessage.mimetype || "audio/ogg";
-      const transcripcion = await transcribirAudio(buffer, mimeType);
-      if (transcripcion) {
-        texto = `[Nota de voz recibida por WhatsApp]: "${transcripcion}"`;
-        textoParaReglasHumano = transcripcion;
-      } else {
-        texto = "[Audio recibido: no se pudo transcribir el contenido]";
-      }
+      mediaBuffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
+      mimeType = msg.message.audioMessage.mimetype || "audio/ogg";
+      texto = "[Nota de voz recibida por WhatsApp]";
+      textoParaReglasHumano = "[Nota de voz]";
     } catch (err) {
       console.error(`[whatsapp:${tenant.config.slug}] Error descargando audio:`, err);
       texto = "[Audio recibido: error al descargar]";
@@ -645,15 +645,10 @@ async function procesarMensajeEntrante(
   } else if (mediaType === "image" && msg.message.imageMessage) {
     textoParaReglasHumano = msg.message.imageMessage.caption || undefined;
     try {
-      const buffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
-      const mimeType = msg.message.imageMessage.mimetype || "image/jpeg";
+      mediaBuffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
+      mimeType = msg.message.imageMessage.mimetype || "image/jpeg";
       const caption = msg.message.imageMessage.caption;
-      const descripcionVisual = await analizarImagen(buffer, mimeType, caption);
-      if (descripcionVisual) {
-        texto = `[Imagen enviada por el cliente por WhatsApp]: ${descripcionVisual}`;
-      } else {
-        texto = caption || "[Imagen recibida sin descripción]";
-      }
+      texto = caption ? `[Imagen con texto]: "${caption}"` : "[Imagen enviada por el cliente por WhatsApp]";
     } catch (err) {
       console.error(`[whatsapp:${tenant.config.slug}] Error descargando imagen:`, err);
       texto = msg.message.imageMessage.caption || "[Imagen recibida: error al descargar]";
@@ -823,14 +818,42 @@ async function procesarMensajeEntrante(
   // seguridad final: pase lo que pase (proveedor colgado, bucle de
   // herramientas atascado), el bot SIEMPRE continúa y responde algo. Nunca
   // se queda en "escribiendo…" para siempre.
-  let respuesta: Awaited<ReturnType<typeof generarRespuesta>> | null = null;
+  let respuesta: { texto: string; tokensEntrada?: number; tokensSalida?: number } | null = null;
   const inicioIa = Date.now();
   try {
-    respuesta = await conTimeout(
-      generarRespuesta(tenant, cliente, historial, texto),
-      45000,
-      "generarRespuesta",
-    );
+    if (mediaBuffer && mimeType) {
+      try {
+        console.log(`[whatsapp:${tenant.config.slug}] Procesando multimedia (${mimeType}) con Gemini 1.5 Flash...`);
+        const promptSistema = systemPrompt(tenant, cliente);
+        const resGemini = await conTimeout(
+          generarRespuestaGemini(historial, texto, mediaBuffer, mimeType, promptSistema),
+          45000,
+          "generarRespuestaGemini",
+        );
+        respuesta = {
+          texto: resGemini.texto,
+          tokensEntrada: resGemini.tokensEntrada,
+          tokensSalida: resGemini.tokensSalida,
+        };
+      } catch (geminiErr) {
+        console.error(
+          `[whatsapp:${tenant.config.slug}] Error procesando multimedia con Gemini 1.5 Flash:`,
+          geminiErr,
+        );
+        // Fallback al pipeline tradicional de IA
+        respuesta = await conTimeout(
+          generarRespuesta(tenant, cliente, historial, texto),
+          45000,
+          "generarRespuestaFallback",
+        );
+      }
+    } else {
+      respuesta = await conTimeout(
+        generarRespuesta(tenant, cliente, historial, texto),
+        45000,
+        "generarRespuesta",
+      );
+    }
   } catch (err) {
     console.error(
       `[whatsapp][${tenant.config.slug}] Fallo/timeout generando respuesta para ${telefono}:`,

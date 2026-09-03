@@ -5,6 +5,7 @@ import { ClientesPorDiaChart, ServiciosChart, CategoriasChart } from "./componen
 import { PreguntasTable } from "./components/PreguntasTable";
 import { CatalogoUpload } from "./components/CatalogoUpload";
 import { WhatsAppStatus } from "./components/WhatsAppStatus";
+import { WhatsAppConexiones } from "./components/WhatsAppConexiones";
 import { GoogleCalendarStatus } from "./components/GoogleCalendarStatus";
 import { SolicitudesHumanas } from "./components/SolicitudesHumanas";
 import { Empleados } from "./components/Empleados";
@@ -377,7 +378,7 @@ export default function App() {
                     titulo="Conexiones"
                     descripcion="El WhatsApp donde este asistente te avisa cuando necesita tu criterio."
                   />
-                  <WhatsAppStatus />
+                  <WhatsAppConexiones />
                 </>
               )}
 
@@ -385,7 +386,7 @@ export default function App() {
                 <>
                   <EncabezadoSeccion titulo="Conexiones" descripcion="WhatsApp, Google Calendar y alertas del equipo." />
                   <section className="mb-6">
-                    <WhatsAppStatus />
+                    <WhatsAppConexiones />
                   </section>
                   <section className="mb-6">
                     <GoogleCalendarStatus />

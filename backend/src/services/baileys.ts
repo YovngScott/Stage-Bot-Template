@@ -15,6 +15,7 @@ import { transcribirAudio, analizarImagen, analizarDocumentoPdf } from "./media.
 import { config } from "../lib/config.js";
 import type { Tenant } from "../lib/tenants.js";
 import { tenantBotActivo, listarTenants } from "../lib/tenants.js";
+import { supabase } from "../lib/supabase.js";
 import {
   actualizarEstadoCliente,
   obtenerOCrearCliente,
@@ -321,11 +322,40 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
       }
       s.estado.conectado = false;
       s.estado.actualizadoEn = Date.now();
+
+      // Emitir connection_qr y status 'qr_ready' a Supabase Realtime
+      try {
+        await supabase
+          .from("client_bots")
+          .update({
+            connection_qr: qr,
+            connection_status: "qr_ready",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("slug", tenant.config.slug);
+      } catch (err) {
+        console.error(`[whatsapp:${tenant.config.slug}] Error emitiendo QR a Supabase:`, err);
+      }
+
       if (Date.now() - s.ultimoLogQr >= 2 * 60_000) {
         s.ultimoLogQr = Date.now();
         console.log(
           `[whatsapp:${tenant.config.slug}] Código QR disponible en el dashboard para vincular.`,
         );
+      }
+    }
+
+    if (connection === "connecting") {
+      try {
+        await supabase
+          .from("client_bots")
+          .update({
+            connection_status: "connecting",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("slug", tenant.config.slug);
+      } catch (err) {
+        console.error(`[whatsapp:${tenant.config.slug}] Error emitiendo status connecting:`, err);
       }
     }
 
@@ -336,6 +366,20 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
       s.estado.numero = null;
       s.estado.actualizadoEn = Date.now();
       s.sock = null;
+
+      // Actualizar a disconnected en Supabase
+      try {
+        await supabase
+          .from("client_bots")
+          .update({
+            connection_qr: null,
+            connection_status: "disconnected",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("slug", tenant.config.slug);
+      } catch (err) {
+        console.error(`[whatsapp:${tenant.config.slug}] Error emitiendo status disconnected:`, err);
+      }
 
       if (sesionesDesactivadas.has(tenant.id)) {
         s.estado.qrDataUrl = null;
@@ -390,6 +434,20 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
       console.log(
         `✅ [whatsapp:${tenant.config.slug}] Conectado — el bot ya puede recibir y responder mensajes.`,
       );
+
+      // Actualizar a open y limpiar el QR en Supabase
+      try {
+        await supabase
+          .from("client_bots")
+          .update({
+            connection_qr: null,
+            connection_status: "open",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("slug", tenant.config.slug);
+      } catch (err) {
+        console.error(`[whatsapp:${tenant.config.slug}] Error emitiendo status open:`, err);
+      }
     }
   });
 

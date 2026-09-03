@@ -135,14 +135,14 @@ export async function mensajeYaProcesado(tenantId: string, waMessageId: string):
 }
 
 /**
- * Últimos N mensajes del cliente en orden cronológico, para el contexto de la
- * IA. Si se pasa `ventanaOculta` (la última solicitud de atención humana ya
- * resuelta), se excluyen los mensajes de ese intercambio.
+ * Obtiene el historial de chat optimizado para el LLM con 'Ventana Deslizante'.
+ * Reduce el consumo de tokens manteniendo solo los últimos mensajes relevantes (default 10)
+ * y compactando notas de voz o contenido multimedia antiguo.
  */
-export async function obtenerHistorial(
+export async function obtenerHistorialOptimizado(
   clienteId: string,
   ventanaOculta?: { desde: string | null; hasta: string | null },
-  limite = 30,
+  limite = 10,
 ): Promise<Mensaje[]> {
   const { data, error } = await supabase
     .from("mensajes")
@@ -163,5 +163,20 @@ export async function obtenerHistorial(
     });
   }
 
-  return mensajes;
+  // Compactación semántica: notas de voz o imágenes anteriores a los últimos 2 mensajes
+  const total = mensajes.length;
+  return mensajes.map((m, idx) => {
+    if (idx < total - 2) {
+      if (m.contenido.startsWith("[Nota de voz recibida")) {
+        return { ...m, contenido: "[Nota de voz anterior procesada]" };
+      }
+      if (m.contenido.startsWith("[Imagen enviada")) {
+        return { ...m, contenido: "[Imagen anterior procesada]" };
+      }
+    }
+    return m;
+  });
 }
+
+/** Alias para compatibilidad con código existente */
+export const obtenerHistorial = obtenerHistorialOptimizado;

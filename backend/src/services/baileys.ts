@@ -20,7 +20,7 @@ import {
   obtenerOCrearCliente,
   guardarMensaje,
   mensajeYaProcesado,
-  obtenerHistorial,
+  obtenerHistorialOptimizado,
 } from "./clientes.js";
 import { generarRespuesta } from "./ia.js";
 import { conTimeout } from "../lib/timeout.js";
@@ -752,10 +752,14 @@ async function procesarMensajeEntrante(
   await new Promise((resolve) => setTimeout(resolve, 1200));
   if (!esUltimoMensaje()) return;
 
-  const historialCompleto = await obtenerHistorial(cliente.id, {
-    desde: cliente.solicito_humano_en,
-    hasta: cliente.atendido_en,
-  });
+  const historialCompleto = await obtenerHistorialOptimizado(
+    cliente.id,
+    {
+      desde: cliente.solicito_humano_en,
+      hasta: cliente.atendido_en,
+    },
+    10,
+  );
   const historial =
     historialCompleto.at(-1)?.rol === "cliente" &&
     historialCompleto.at(-1)?.contenido === texto

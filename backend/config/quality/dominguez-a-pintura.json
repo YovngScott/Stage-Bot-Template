@@ -197,6 +197,17 @@
   ],
   "manualRuns": [
     {
+      "id": "5447cfd2-90a4-4053-8d32-8f62c9afdd38",
+      "question": "Que servicios ofreces",
+      "response": "¡Hola! 👋 En Domínguez Auto Pintura somos especialistas exclusivos en pintura automotriz y estética vehicular. 🚗✨ Ofrecemos servicios de repintado general, pintura por piezas, corrección de pintura, pulido profesional, aplicación de recubrimientos (ceramic coating) y gestión de reclamaciones de seguros. ¿Te gustaría que evaluemos el estado de la pintura de tu vehículo?",
+      "decision": "answer",
+      "tools": [
+        "consultar_catalogo"
+      ],
+      "latencyMs": 107203,
+      "testedAt": "2026-09-03T15:31:24.037Z"
+    },
+    {
       "id": "960be74c-eb5f-4e73-8088-38e79894df0b",
       "question": "donde estan hubicados?",
       "response": "Lo siento, no dispongo de la información de nuestra ubicación exacta. Permíteme derivar tu consulta a un agente para que te brinde los detalles.",
@@ -227,7 +238,7 @@
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-09-03T14:48:12.274Z",
-  "updatedAt": "2026-09-03T15:28:50.819Z",
+  "updatedAt": "2026-09-03T15:31:24.037Z",
   "publishedAt": null,
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

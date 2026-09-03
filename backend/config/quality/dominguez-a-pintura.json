@@ -238,7 +238,7 @@
   "provisionJobId": "ea9b2c8b-a45d-4ece-b216-310ceb4b6f00",
   "lastError": "[2026-09-03T19:25:16.276Z] ERROR CRÍTICO: Fly API Error [422 Unprocessable Entity]: Services [0] Ports [0] Force https force_https is not allowed when the tls handler is enabled",
   "createdAt": "2026-09-03T14:48:12.274Z",
-  "updatedAt": "2026-09-03T19:25:16.922Z",
+  "updatedAt": "2026-09-03T19:25:18.524Z",
   "publishedAt": null,
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

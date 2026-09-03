@@ -57,11 +57,21 @@
   },
   "state": "draft",
   "tests": [],
-  "manualRuns": [],
+  "manualRuns": [
+    {
+      "id": "a120fb62-fc86-4b11-8119-009ca202a003",
+      "question": "Hola",
+      "response": "¡Hola! 👋 Bienvenido a Wiltech R. Dominicana. ¿En qué puedo ayudarte hoy?",
+      "decision": "answer",
+      "tools": [],
+      "latencyMs": 937,
+      "testedAt": "2026-09-03T12:09:11.416Z"
+    }
+  ],
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-09-03T12:09:01.969Z",
-  "updatedAt": "2026-09-03T12:09:01.969Z",
+  "updatedAt": "2026-09-03T12:09:11.417Z",
   "publishedAt": null,
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

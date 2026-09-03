@@ -59,6 +59,15 @@
   "tests": [],
   "manualRuns": [
     {
+      "id": "31074f03-066d-4c1f-89a7-d35764540a85",
+      "question": "Tengo un vehiculo, me interesa saber como va",
+      "response": "¡Hola! 👋 Claro, para poder informarte del estado de tu vehículo, necesito algunos datos como el número de orden o la placa del auto. ¿Podrías compartir esa información?",
+      "decision": "answer",
+      "tools": [],
+      "latencyMs": 850,
+      "testedAt": "2026-09-03T14:48:56.651Z"
+    },
+    {
       "id": "57c1f7d7-0518-48a8-8fac-79bd99885e37",
       "question": "Saludos",
       "response": "¡Hola! 👋 Bienvenido a Domínguez A. Pintura. ¿En qué podemos ayudarte hoy? ✨",
@@ -71,7 +80,7 @@
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-09-03T14:48:12.274Z",
-  "updatedAt": "2026-09-03T14:48:36.214Z",
+  "updatedAt": "2026-09-03T14:48:56.652Z",
   "publishedAt": null,
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

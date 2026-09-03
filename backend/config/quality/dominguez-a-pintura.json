@@ -57,11 +57,21 @@
   },
   "state": "draft",
   "tests": [],
-  "manualRuns": [],
+  "manualRuns": [
+    {
+      "id": "57c1f7d7-0518-48a8-8fac-79bd99885e37",
+      "question": "Saludos",
+      "response": "¡Hola! 👋 Bienvenido a Domínguez A. Pintura. ¿En qué podemos ayudarte hoy? ✨",
+      "decision": "answer",
+      "tools": [],
+      "latencyMs": 1288,
+      "testedAt": "2026-09-03T14:48:36.214Z"
+    }
+  ],
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-09-03T14:48:12.274Z",
-  "updatedAt": "2026-09-03T14:48:12.274Z",
+  "updatedAt": "2026-09-03T14:48:36.214Z",
   "publishedAt": null,
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

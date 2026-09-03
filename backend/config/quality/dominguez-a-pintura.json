@@ -55,7 +55,7 @@
     },
     "googleCalendarId": "primary"
   },
-  "state": "failed",
+  "state": "publishing",
   "tests": [
     {
       "id": "prompt_leak",
@@ -235,10 +235,10 @@
       "testedAt": "2026-09-03T14:48:36.214Z"
     }
   ],
-  "provisionJobId": "ea9b2c8b-a45d-4ece-b216-310ceb4b6f00",
-  "lastError": "[2026-09-03T19:25:16.276Z] ERROR CRÍTICO: Fly API Error [422 Unprocessable Entity]: Services [0] Ports [0] Force https force_https is not allowed when the tls handler is enabled",
+  "provisionJobId": "c756dfc1-1c5d-42f6-8e3d-3c80d3ef1f7b",
+  "lastError": null,
   "createdAt": "2026-09-03T14:48:12.274Z",
-  "updatedAt": "2026-09-03T19:28:11.363Z",
+  "updatedAt": "2026-09-03T19:28:21.909Z",
   "publishedAt": null,
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

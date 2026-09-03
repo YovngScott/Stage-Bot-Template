@@ -60,7 +60,7 @@ export async function generarRespuestaGemini(
   const genAI = new GoogleGenerativeAI(apiKey);
 
   const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: process.env.STAGE_GEMINI_MODEL || "gemini-3.5-flash",
     systemInstruction: systemPromptText
       ? { role: "system", parts: [{ text: systemPromptText }] }
       : undefined,

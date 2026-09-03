@@ -55,7 +55,7 @@
     },
     "googleCalendarId": "primary"
   },
-  "state": "publishing",
+  "state": "failed",
   "tests": [
     {
       "id": "prompt_leak",
@@ -236,9 +236,9 @@
     }
   ],
   "provisionJobId": "b0315554-880a-42c9-a7f5-184ca0dcdfc9",
-  "lastError": null,
+  "lastError": "[2026-09-03T15:44:10.382Z] ERROR CRÍTICO: Fly API Error [401 Unauthorized]: no verified tokens; token 17143e9f-e8c6-5e6c-b73e-803acd70f927: verify: invalid token: verify: root banned: 17143e9f-e8c6-5e6c-b73e-803acd70f927",
   "createdAt": "2026-09-03T14:48:12.274Z",
-  "updatedAt": "2026-09-03T15:44:07.595Z",
+  "updatedAt": "2026-09-03T15:44:12.636Z",
   "publishedAt": null,
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

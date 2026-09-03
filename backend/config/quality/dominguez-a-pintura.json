@@ -55,7 +55,7 @@
     },
     "googleCalendarId": "primary"
   },
-  "state": "failed",
+  "state": "publishing",
   "tests": [
     {
       "id": "prompt_leak",
@@ -235,10 +235,10 @@
       "testedAt": "2026-09-03T14:48:36.214Z"
     }
   ],
-  "provisionJobId": "c756dfc1-1c5d-42f6-8e3d-3c80d3ef1f7b",
-  "lastError": "[2026-09-03T19:28:27.106Z] ERROR CRÍTICO: Fly API Error [400 Bad Request]: failed to get manifest ghcr.io/yovngscott/stage-bot-template:latest: unauthorized",
+  "provisionJobId": "03fef6d4-3591-455a-a281-18e34795d583",
+  "lastError": null,
   "createdAt": "2026-09-03T14:48:12.274Z",
-  "updatedAt": "2026-09-03T19:37:36.613Z",
+  "updatedAt": "2026-09-03T19:37:53.901Z",
   "publishedAt": null,
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

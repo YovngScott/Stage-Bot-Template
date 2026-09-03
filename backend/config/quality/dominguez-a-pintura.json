@@ -238,7 +238,7 @@
   "provisionJobId": "62ea0642-fa99-4257-86f7-75f9d2a58063",
   "lastError": "[2026-09-03T15:51:09.178Z] ERROR CRÍTICO: Fly API Error [400 Bad Request]: Region mia is deprecated and cannot have new resources provisioned. Please consider using an alternate region such as dfw",
   "createdAt": "2026-09-03T14:48:12.274Z",
-  "updatedAt": "2026-09-03T15:51:10.634Z",
+  "updatedAt": "2026-09-03T15:51:12.236Z",
   "publishedAt": null,
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

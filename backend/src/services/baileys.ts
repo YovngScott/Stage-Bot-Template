@@ -374,11 +374,27 @@ export async function iniciarWhatsApp(tenant: Tenant): Promise<void> {
           .update({
             connection_qr: null,
             connection_status: "disconnected",
+            last_error: `[SRE WATCHDOG] Desconectado de WhatsApp (código ${statusCode ?? "red"}).`,
             updated_at: new Date().toISOString(),
           })
           .eq("slug", tenant.config.slug);
       } catch (err) {
         console.error(`[whatsapp:${tenant.config.slug}] Error emitiendo status disconnected:`, err);
+      }
+
+      // --- WATCHDOG DE GUARDIA SRE: Alerta Operacional Inmediata ---
+      if (!sesionesDesactivadas.has(tenant.id)) {
+        console.warn(`🚨 [SRE WATCHDOG] Desconexión detectada en bot [${tenant.config.slug}]. Código: ${statusCode ?? "red"}.`);
+        queueFailure({
+          tenantSlug: tenant.config.slug,
+          source: "whatsapp",
+          operation: "desconexion_whatsapp_watchdog",
+          error: new Error(`ALERTA WATCHDOG SRE: Bot [${tenant.config.slug}] desconectado de WhatsApp. Código: ${statusCode ?? "red"}. Requiere reconexión.`),
+          dedupeKey: `watchdog:${tenant.config.slug}:disconnected:${new Date().toISOString().slice(0, 13)}`,
+          maxAttempts: 1,
+        }).catch((err) => {
+          console.error(`[watchdog:${tenant.config.slug}] Error encolando alerta de desconexión:`, err);
+        });
       }
 
       if (sesionesDesactivadas.has(tenant.id)) {
@@ -534,8 +550,26 @@ export async function detenerTodasLasSesiones(): Promise<void> {
   sesiones.clear();
 }
 
+const MAX_MEDIA_BYTES = 10 * 1024 * 1024; // 10 MB
+
 const RESPUESTA_TRANSFERENCIA_TPL = (nombreNegocio: string) =>
   `Claro, ya transferimos tu solicitud con un supervisor de ${nombreNegocio}. Un asesor te responderá personalmente por este mismo chat en breve. 🙏`;
+
+const RESPUESTA_ARCHIVO_PESADO_TPL = (nombreNegocio: string) =>
+  `He recibido tu archivo, pero debido a que supera el límite de 10 MB no fue posible procesarlo automáticamente. Ya transferí tu mensaje a un asesor de ${nombreNegocio} para que lo revise personalmente en breve. 🙏`;
+
+function obtenerTamanoMedia(msg: any): number | null {
+  const m = msg?.message;
+  if (!m) return null;
+  const raw =
+    m.audioMessage?.fileLength ??
+    m.documentMessage?.fileLength ??
+    m.imageMessage?.fileLength ??
+    m.videoMessage?.fileLength;
+  if (raw === undefined || raw === null) return null;
+  const num = Number(raw);
+  return Number.isFinite(num) && num > 0 ? num : null;
+}
 
 function normalizarTexto(texto: string): string {
   return texto
@@ -689,40 +723,76 @@ async function procesarMensajeEntrante(
 
   let mediaBuffer: Buffer | undefined;
   let mimeType: string | undefined;
+  let esArchivoPesado = false;
+  const tamanoEstimado = obtenerTamanoMedia(msg);
+  if (tamanoEstimado !== null && tamanoEstimado > MAX_MEDIA_BYTES) {
+    esArchivoPesado = true;
+  }
 
   if (mediaType === "audio" && msg.message.audioMessage) {
-    try {
-      mediaBuffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
-      mimeType = msg.message.audioMessage.mimetype || "audio/ogg";
-      texto = "[Nota de voz recibida por WhatsApp]";
+    if (esArchivoPesado) {
+      texto = "[Nota de voz recibida (archivo > 10MB)]";
       textoParaReglasHumano = "[Nota de voz]";
-    } catch (err) {
-      console.error(`[whatsapp:${tenant.config.slug}] Error descargando audio:`, err);
-      texto = "[Audio recibido: error al descargar]";
+    } else {
+      try {
+        mediaBuffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
+        if (mediaBuffer && mediaBuffer.length > MAX_MEDIA_BYTES) {
+          esArchivoPesado = true;
+          mediaBuffer = undefined;
+          texto = "[Nota de voz recibida (archivo > 10MB)]";
+          textoParaReglasHumano = "[Nota de voz]";
+        } else {
+          mimeType = msg.message.audioMessage.mimetype || "audio/ogg";
+          texto = "[Nota de voz recibida por WhatsApp]";
+          textoParaReglasHumano = "[Nota de voz]";
+        }
+      } catch (err) {
+        console.error(`[whatsapp:${tenant.config.slug}] Error descargando audio:`, err);
+        texto = "[Audio recibido: error al descargar]";
+      }
     }
   } else if (mediaType === "image" && msg.message.imageMessage) {
     textoParaReglasHumano = msg.message.imageMessage.caption || undefined;
-    try {
-      mediaBuffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
-      mimeType = msg.message.imageMessage.mimetype || "image/jpeg";
+    if (esArchivoPesado) {
       const caption = msg.message.imageMessage.caption;
-      texto = caption ? `[Imagen con texto]: "${caption}"` : "[Imagen enviada por el cliente por WhatsApp]";
-    } catch (err) {
-      console.error(`[whatsapp:${tenant.config.slug}] Error descargando imagen:`, err);
-      texto = msg.message.imageMessage.caption || "[Imagen recibida: error al descargar]";
+      texto = caption ? `[Imagen con texto (archivo > 10MB)]: "${caption}"` : "[Imagen recibida (archivo > 10MB)]";
+    } else {
+      try {
+        mediaBuffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
+        if (mediaBuffer && mediaBuffer.length > MAX_MEDIA_BYTES) {
+          esArchivoPesado = true;
+          mediaBuffer = undefined;
+          const caption = msg.message.imageMessage.caption;
+          texto = caption ? `[Imagen con texto (archivo > 10MB)]: "${caption}"` : "[Imagen recibida (archivo > 10MB)]";
+        } else {
+          mimeType = msg.message.imageMessage.mimetype || "image/jpeg";
+          const caption = msg.message.imageMessage.caption;
+          texto = caption ? `[Imagen con texto]: "${caption}"` : "[Imagen enviada por el cliente por WhatsApp]";
+        }
+      } catch (err) {
+        console.error(`[whatsapp:${tenant.config.slug}] Error descargando imagen:`, err);
+        texto = msg.message.imageMessage.caption || "[Imagen recibida: error al descargar]";
+      }
     }
   } else if (mediaType === "document" && msg.message.documentMessage) {
     textoParaReglasHumano = msg.message.documentMessage.caption || undefined;
     const isPdf = msg.message.documentMessage.mimetype?.includes("pdf") || msg.message.documentMessage.fileName?.toLowerCase().endsWith(".pdf");
-    if (isPdf) {
+    if (esArchivoPesado) {
+      texto = `[Documento recibido (archivo > 10MB): ${String(msg.message.documentMessage?.fileName ?? "sin nombre")}]`;
+    } else if (isPdf) {
       try {
         const buffer = (await downloadMediaMessage(msg, "buffer", {})) as Buffer;
-        const filename = msg.message.documentMessage.fileName || "documento.pdf";
-        const analisisPdf = await analizarDocumentoPdf(buffer, "application/pdf", filename);
-        if (analisisPdf) {
-          texto = `[Documento PDF recibido en WhatsApp '${filename}']: ${analisisPdf}`;
+        if (buffer && buffer.length > MAX_MEDIA_BYTES) {
+          esArchivoPesado = true;
+          texto = `[Documento PDF recibido (archivo > 10MB): ${String(msg.message.documentMessage?.fileName ?? "documento.pdf")}]`;
         } else {
-          texto = `[Documento PDF recibido: ${filename}]`;
+          const filename = msg.message.documentMessage.fileName || "documento.pdf";
+          const analisisPdf = await analizarDocumentoPdf(buffer, "application/pdf", filename);
+          if (analisisPdf) {
+            texto = `[Documento PDF recibido en WhatsApp '${filename}']: ${analisisPdf}`;
+          } else {
+            texto = `[Documento PDF recibido: ${filename}]`;
+          }
         }
       } catch (err) {
         console.error(`[whatsapp:${tenant.config.slug}] Error descargando PDF:`, err);
@@ -771,6 +841,19 @@ async function procesarMensajeEntrante(
     wa_message_id: waMessageId,
   });
   if (idGuardado === null) return; // ya procesado por otro worker
+
+  if (esArchivoPesado) {
+    await actualizarEstadoCliente(tenant.id, cliente.id, "requiere_humano");
+    const respuesta = RESPUESTA_ARCHIVO_PESADO_TPL(tenant.config.nombre);
+    await enviarAJidConReintento(tenant.id, remoteJid, respuesta);
+    await guardarMensaje({
+      tenant_id: tenant.id,
+      cliente_id: cliente.id,
+      rol: "bot",
+      contenido: respuesta,
+    });
+    return;
+  }
   const channelTestId = await matchInboundChannelTest(tenant.id, "whatsapp", texto);
 
   const consent = consentCommand(texto);

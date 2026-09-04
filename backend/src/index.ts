@@ -133,6 +133,21 @@ async function apagar(signal: string): Promise<void> {
 process.once("SIGTERM", () => void apagar("SIGTERM"));
 process.once("SIGINT", () => void apagar("SIGINT"));
 
+// --- CINTURÓN DE SEGURIDAD SRE: Process Error Handlers Anti-Crash ---
+process.on("unhandledRejection", (reason: unknown, promise: Promise<unknown>) => {
+  console.error("[SRE FATAL GUARD] Unhandled Rejection detectada (proceso protegido contra crash):", {
+    reason: reason instanceof Error ? reason.stack || reason.message : reason,
+  });
+});
+
+process.on("uncaughtException", (error: Error) => {
+  console.error("[SRE FATAL GUARD] Uncaught Exception detectada (proceso protegido contra crash):", {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+  });
+});
+
 async function iniciar() {
   iniciarDashboardIntegrado();
   const tenants = await cargarTenants();

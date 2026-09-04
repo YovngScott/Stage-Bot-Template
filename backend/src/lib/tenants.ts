@@ -72,6 +72,13 @@ export interface AsistenteConfig {
   categorias: Record<string, string>;
 }
 
+export interface KnowledgeBaseConfig {
+  sourceUrl?: string;
+  sourceName?: string;
+  content?: string;
+  lastSyncedAt?: string;
+}
+
 /**
  * Configuración de UN cliente (tenant), cargada desde
  * config/tenants/<slug>.json. El formato se documenta en README.md.
@@ -103,6 +110,8 @@ export interface TenantConfig {
   extraInstructions: string;
   promptExtra: string;
   googleCalendarId: string;
+  /** Base de conocimiento para Customer Support y políticas oficiales. */
+  knowledgeBase?: KnowledgeBaseConfig;
   /** Presente solo cuando kind === "assistant". */
   asistente: AsistenteConfig | null;
 }
@@ -171,6 +180,23 @@ function normalizarAsistente(raw: any): AsistenteConfig | null {
     // owner's name requires an explicit opt-in.
     enviarAutomatico: raw.enviarAutomatico === true,
     categorias,
+  };
+}
+
+/** Normaliza el bloque `knowledgeBase` del JSON para soporte estricto. */
+function normalizarKnowledgeBase(raw: any): KnowledgeBaseConfig | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const sourceUrl = typeof raw.sourceUrl === "string" ? raw.sourceUrl.trim() : undefined;
+  const sourceName = typeof raw.sourceName === "string" ? raw.sourceName.trim() : undefined;
+  const content = typeof raw.content === "string" ? raw.content.trim() : undefined;
+  const lastSyncedAt = typeof raw.lastSyncedAt === "string" ? raw.lastSyncedAt : undefined;
+
+  if (!sourceUrl && !content) return undefined;
+  return {
+    sourceUrl: sourceUrl || undefined,
+    sourceName: sourceName || undefined,
+    content: content || undefined,
+    lastSyncedAt: lastSyncedAt || undefined,
   };
 }
 
@@ -274,6 +300,7 @@ function cargarConfigsDeDisco(): TenantConfig[] {
         extraInstructions: String(json.extraInstructions ?? ""),
         promptExtra: json.promptExtra ?? "",
         googleCalendarId: json.googleCalendarId ?? "primary",
+        knowledgeBase: normalizarKnowledgeBase(json.knowledgeBase),
         asistente:
           kind === "assistant" ? normalizarAsistente(json.asistente) : null,
       });

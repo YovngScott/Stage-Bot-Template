@@ -69,6 +69,29 @@ export const tools: FunctionDeclaration[] = [
     },
   },
   {
+    name: "solicitar_asistencia_humana",
+    description:
+      "Escala inmediatamente la conversación con un asesor humano del negocio. Úsala OBLIGATORIAMENTE " +
+      "cuando el cliente pregunte algo no contemplado en la base de conocimiento o catálogo, o cuando solicite " +
+      "hablar con una persona del equipo. Pausa la intervención automática del bot para permitir atención personalizada.",
+    parameters: {
+      type: Type.OBJECT,
+      properties: {
+        motivo: {
+          type: Type.STRING,
+          description:
+            "Razón o duda específica del cliente que motiva la transferencia a un asesor humano.",
+        },
+        urgencia: {
+          type: Type.STRING,
+          enum: ["baja", "media", "alta"],
+          description: "Nivel de urgencia percibido de la consulta (opcional).",
+        },
+      },
+      required: ["motivo"],
+    },
+  },
+  {
     name: "verificar_disponibilidad",
     description:
       "Verifica si un horario está libre en la agenda del negocio ANTES de confirmar una cita al cliente.",

@@ -29,6 +29,10 @@ const toolSchemas: Record<string, z.ZodTypeAny> = {
     notas: z.string().trim().max(800).optional(),
     etiquetas: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
   }).strict(),
+  solicitar_asistencia_humana: z.object({
+    motivo: z.string().trim().min(2).max(400),
+    urgencia: z.enum(["baja", "media", "alta"]).optional(),
+  }).strict(),
   verificar_disponibilidad: z.object({
     inicio_iso: isoDate,
     duracion_minutos: z.number().int().min(15).max(480).optional(),
@@ -85,11 +89,6 @@ function validateToolCall(
   return schema.parse(input) as Record<string, any>;
 }
 
-/**
- * Ejecuta la tool solicitada por la IA y devuelve el resultado como string.
- * Los errores se devuelven como texto para que la IA pueda comunicarlos con
- * gracia al cliente.
- */
 export async function ejecutarTool(
   nombre: string,
   input: Record<string, any>,
@@ -154,13 +153,6 @@ export async function ejecutarTool(
           ? [...input.etiquetas]
           : [];
 
-        // Cuando la IA escala a un humano SÍ pausamos el bot (estado
-        // 'requiere_humano'), para que un asesor tome el chat sin que el bot lo
-        // siga contestando por encima. Esto ya NO deja al bot mudo para siempre:
-        // la pausa está acotada a una ventana de 3h en baileys — si nadie
-        // responde en ese tiempo y el cliente sigue escribiendo, el bot retoma.
-        // Guardamos también la etiqueta para que el panel del cliente lo liste,
-        // y actualizarEstadoCliente avisa al equipo al pasar a requiere_humano.
         if (
           estado === "requiere_humano" &&
           !etiquetas.includes("requiere_humano")
@@ -174,6 +166,20 @@ export async function ejecutarTool(
         });
         return {
           resultado: `Cliente actualizado a estado '${estado}'.`,
+          esError: false,
+        };
+      }
+
+      case "solicitar_asistencia_humana": {
+        const motivo = String(input.motivo ?? "").trim();
+        const urgencia = input.urgencia ?? "media";
+        await actualizarEstadoCliente(tenant.id, cliente.id, "requiere_humano", {
+          etiquetas: ["requiere_humano", `urgencia_${urgencia}`],
+          notas: `[SOPORTE HUMANO]: ${motivo}`,
+        });
+        return {
+          resultado:
+            "Asistencia de asesor humano solicitada exitosamente. Se ha pausado la respuesta automática para dar paso al equipo.",
           esError: false,
         };
       }
@@ -256,13 +262,9 @@ export async function ejecutarTool(
     }
   } catch (err: any) {
     console.error(`[tools] Error ejecutando ${nombre}:`, err);
-    const safe =
-      err instanceof z.ZodError
-        ? "Los datos propuestos para la herramienta son inválidos o incompletos."
-        : String(err?.message ?? "La operación no está autorizada.").slice(
-            0,
-            240,
-          );
-    return { resultado: `No se ejecutó ${nombre}: ${safe}`, esError: true };
+    return {
+      resultado: `Error al ejecutar la acción: ${err.message ?? "fallo interno"}`,
+      esError: true,
+    };
   }
 }

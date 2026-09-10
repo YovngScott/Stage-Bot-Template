@@ -70,11 +70,21 @@
   },
   "state": "active",
   "tests": [],
-  "manualRuns": [],
+  "manualRuns": [
+    {
+      "id": "073b2a63-9e54-4244-b9e8-3205dd8f9e05",
+      "question": "hola",
+      "response": "¡Hola! Bienvenido a Stage AI Labs Sales Bot. ¿En qué puedo ayudarte hoy? Te puedo brindar información sobre nuestra AI Messaging Suite.",
+      "decision": "answer",
+      "tools": [],
+      "latencyMs": 3599,
+      "testedAt": "2026-09-10T03:12:00.987Z"
+    }
+  ],
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-09-10T03:08:56.759Z",
-  "updatedAt": "2026-09-10T03:08:56.759Z",
+  "updatedAt": "2026-09-10T03:12:00.987Z",
   "publishedAt": "2026-09-10T03:08:56.759Z",
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

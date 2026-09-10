@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "slug": "stage-ai-labs-sales-bot",
+  "clientId": "ab3b6ce2-dc59-440e-bb4a-adf4315ea6e6",
+  "clientName": "Stage AI Labs Sales Bot",
+  "productName": "AI Messaging Suite",
+  "botType": "messaging",
+  "groqModel": "openai/gpt-oss-120b",
+  "updateClient": false,
+  "tenantConfig": {
+    "slug": "stage-ai-labs-sales-bot",
+    "kind": "messaging",
+    "nombreBot": "Stage AI Labs Sales Bot Bot",
+    "nombre": "Stage AI Labs Sales Bot",
+    "descripcion": "Asistente virtual y atención automatizada vía WhatsApp para Stage AI Labs Sales Bot.",
+    "direccion": "Atención remota / República Dominicana",
+    "horario": "Lunes a viernes, 09:00–18:00",
+    "contacto": "+18095550199",
+    "whatsappJid": "18095550199@s.whatsapp.net",
+    "redes": "",
+    "servicios": "AI Messaging Suite",
+    "moneda": "USD",
+    "zonaHoraria": "America/Santo_Domingo",
+    "preferredModel": {
+      "provider": "gemini",
+      "modelName": "gemini-1.5-flash"
+    },
+    "whatsapp": {
+      "provider": "baileys",
+      "phoneNumberId": "",
+      "businessAccountId": "",
+      "apiVersion": "v23.0"
+    },
+    "schedule": {
+      "businessDays": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "businessStart": "09:00",
+      "businessEnd": "18:00",
+      "quietStart": "20:00",
+      "quietEnd": "08:00",
+      "holidays": [],
+      "appointmentReminderTime": "09:00",
+      "dailyReportTime": "18:00"
+    },
+    "adminEmails": [
+      "owner@stagelabs.com"
+    ],
+    "behavior": "sales",
+    "policy": {
+      "canQuoteByChat": false,
+      "requireAppointmentConfirmation": true,
+      "requireHumanForCommitments": true
+    },
+    "companyInfo": "Stage AI Labs Sales Bot - Asistencia y ventas.",
+    "extraInstructions": "Responde siempre de forma cordial, concisa y profesional.",
+    "promptExtra": "",
+    "googleCalendarId": "primary",
+    "insuranceAutomationEnabled": false,
+    "knowledgeBase": {
+      "sourceName": "Base de Conocimiento - Stage AI Labs Sales Bot",
+      "content": "",
+      "lastSyncedAt": "2026-09-10T03:08:56.756Z"
+    },
+    "asistente": null
+  },
+  "state": "active",
+  "tests": [],
+  "manualRuns": [],
+  "provisionJobId": null,
+  "lastError": null,
+  "createdAt": "2026-09-10T03:08:56.759Z",
+  "updatedAt": "2026-09-10T03:08:56.759Z",
+  "publishedAt": "2026-09-10T03:08:56.759Z",
+  "lastRestoreDrillAt": null,
+  "lastRestoreDrillOk": null,
+  "preflightChecks": [],
+  "preflightAt": null,
+  "manualApprovedAt": null
+}

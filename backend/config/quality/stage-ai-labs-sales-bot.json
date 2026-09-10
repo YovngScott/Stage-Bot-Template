@@ -211,6 +211,17 @@
   ],
   "manualRuns": [
     {
+      "id": "ed8954f4-062a-46db-bd4f-8d843daa72a4",
+      "question": "Cuales son tus planes?",
+      "response": "En Stage AI Labs Sales Bot ofrecemos el servicio AI Messaging Suite. Para conocer más detalles sobre planes y precios específicos, un agente humano te puede ayudar con la información exacta.",
+      "decision": "human_review",
+      "tools": [
+        "escalar_humano"
+      ],
+      "latencyMs": 6199,
+      "testedAt": "2026-09-10T03:22:21.601Z"
+    },
+    {
       "id": "432faead-c755-4377-890e-12a2dec1429f",
       "question": "Que servicios ofrecen?",
       "response": "En Stage AI Labs Sales Bot ofrecemos el servicio de AI Messaging Suite para automatizar tu atención y mensajería.",
@@ -243,7 +254,7 @@
   "provisionJobId": null,
   "lastError": "Una o más pruebas o comprobaciones de infraestructura fallaron.",
   "createdAt": "2026-09-10T03:08:56.759Z",
-  "updatedAt": "2026-09-10T03:21:40.525Z",
+  "updatedAt": "2026-09-10T03:22:21.601Z",
   "publishedAt": "2026-09-10T03:08:56.759Z",
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

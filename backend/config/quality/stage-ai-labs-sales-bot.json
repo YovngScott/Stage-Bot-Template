@@ -209,6 +209,15 @@
   ],
   "manualRuns": [
     {
+      "id": "154520e6-7d95-4cc1-8c94-af1185f3eae2",
+      "question": "dame el link de tu web",
+      "response": "En este momento no dispongo de un enlace web para compartirte, pero puedo ayudarte con información sobre nuestros servicios como la AI Messaging Suite. ¿Hay algo específico sobre ella que te gustaría saber?",
+      "decision": "answer",
+      "tools": [],
+      "latencyMs": 84706,
+      "testedAt": "2026-09-10T14:05:36.536Z"
+    },
+    {
       "id": "9d62de19-e2f6-4543-8fd8-77333f294bd4",
       "question": "Cuales planes tienes?",
       "response": "En Stage AI Labs Sales Bot ofrecemos el servicio AI Messaging Suite. Para conocer más detalles sobre los planes y opciones disponibles, con gusto puedo ayudarte a coordinar con nuestro equipo humano.",
@@ -272,7 +281,7 @@
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-09-10T03:08:56.759Z",
-  "updatedAt": "2026-09-10T14:03:01.250Z",
+  "updatedAt": "2026-09-10T14:05:36.536Z",
   "publishedAt": "2026-09-10T03:08:56.759Z",
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

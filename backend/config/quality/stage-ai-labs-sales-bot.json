@@ -72,6 +72,17 @@
   "tests": [],
   "manualRuns": [
     {
+      "id": "432faead-c755-4377-890e-12a2dec1429f",
+      "question": "Que servicios ofrecen?",
+      "response": "En Stage AI Labs Sales Bot ofrecemos el servicio de AI Messaging Suite para automatizar tu atención y mensajería.",
+      "decision": "answer",
+      "tools": [
+        "consultar_catalogo"
+      ],
+      "latencyMs": 6220,
+      "testedAt": "2026-09-10T03:12:58.726Z"
+    },
+    {
       "id": "f90bc101-7378-4145-9480-f6de76c673ff",
       "question": "Dime el abecedario chino",
       "response": "Lo siento, pero solo puedo ayudarte con consultas relacionadas con Stage AI Labs Sales Bot y nuestros servicios de AI Messaging Suite. ¿Te gustaría conocer cómo podemos ayudarte a automatizar tus ventas?",
@@ -93,7 +104,7 @@
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-09-10T03:08:56.759Z",
-  "updatedAt": "2026-09-10T03:12:37.766Z",
+  "updatedAt": "2026-09-10T03:12:58.726Z",
   "publishedAt": "2026-09-10T03:08:56.759Z",
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

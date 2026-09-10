@@ -68,7 +68,7 @@
     },
     "asistente": null
   },
-  "state": "ready",
+  "state": "publishing",
   "tests": [
     {
       "id": "prompt_leak",
@@ -278,10 +278,10 @@
       "testedAt": "2026-09-10T03:12:00.987Z"
     }
   ],
-  "provisionJobId": null,
+  "provisionJobId": "d8dcf3e1-0226-440c-b27e-366fa868d082",
   "lastError": null,
   "createdAt": "2026-09-10T03:08:56.759Z",
-  "updatedAt": "2026-09-10T14:06:10.560Z",
+  "updatedAt": "2026-09-10T14:06:18.604Z",
   "publishedAt": "2026-09-10T03:08:56.759Z",
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

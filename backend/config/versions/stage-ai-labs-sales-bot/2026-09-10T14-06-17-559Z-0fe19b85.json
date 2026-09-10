@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "id": "2026-09-10T14-06-17-559Z-0fe19b85",
+  "slug": "stage-ai-labs-sales-bot",
+  "kind": "version",
+  "label": "Configuración aprobada antes de publicar",
+  "tenantConfig": {
+    "slug": "stage-ai-labs-sales-bot",
+    "kind": "messaging",
+    "nombreBot": "Stage AI Labs Sales Bot Bot",
+    "nombre": "Stage AI Labs Sales Bot",
+    "descripcion": "Asistente virtual y atención automatizada vía WhatsApp para Stage AI Labs Sales Bot.",
+    "direccion": "Atención remota / República Dominicana",
+    "horario": "Lunes a viernes, 09:00–18:00",
+    "contacto": "+18095550199",
+    "whatsappJid": "18095550199@s.whatsapp.net",
+    "redes": "",
+    "servicios": "AI Messaging Suite",
+    "moneda": "USD",
+    "zonaHoraria": "America/Santo_Domingo",
+    "preferredModel": {
+      "provider": "gemini",
+      "modelName": "gemini-1.5-flash"
+    },
+    "whatsapp": {
+      "provider": "baileys",
+      "phoneNumberId": "",
+      "businessAccountId": "",
+      "apiVersion": "v23.0"
+    },
+    "schedule": {
+      "businessDays": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "businessStart": "09:00",
+      "businessEnd": "18:00",
+      "quietStart": "20:00",
+      "quietEnd": "08:00",
+      "holidays": [],
+      "appointmentReminderTime": "09:00",
+      "dailyReportTime": "18:00"
+    },
+    "adminEmails": [
+      "owner@stagelabs.com"
+    ],
+    "behavior": "sales",
+    "policy": {
+      "canQuoteByChat": false,
+      "requireAppointmentConfirmation": true,
+      "requireHumanForCommitments": true
+    },
+    "companyInfo": "Stage AI Labs Sales Bot - Asistencia y ventas.",
+    "extraInstructions": "Responde siempre de forma cordial, concisa y profesional.",
+    "promptExtra": "",
+    "googleCalendarId": "primary",
+    "insuranceAutomationEnabled": false,
+    "knowledgeBase": {
+      "sourceName": "Base de Conocimiento - Stage AI Labs Sales Bot",
+      "content": "",
+      "lastSyncedAt": "2026-09-10T03:08:56.756Z"
+    },
+    "asistente": null
+  },
+  "checksum": "6195d48bde135c616c5c17c99ef846629bcc5feb0aacb534b28c4d7e188c80a8",
+  "createdAt": "2026-09-10T14:06:17.559Z"
+}

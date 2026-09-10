@@ -209,6 +209,15 @@
   ],
   "manualRuns": [
     {
+      "id": "3d5a71cb-663e-4a46-9283-b271048ad8d9",
+      "question": "De que trata tu empresa?",
+      "response": "En Stage AI Labs Sales Bot ofrecemos la AI Messaging Suite, una solución de asistente virtual y atención automatizada vía WhatsApp para optimizar la comunicación de tu negocio.",
+      "decision": "answer",
+      "tools": [],
+      "latencyMs": 18283,
+      "testedAt": "2026-09-10T13:46:27.761Z"
+    },
+    {
       "id": "ed8954f4-062a-46db-bd4f-8d843daa72a4",
       "question": "Cuales son tus planes?",
       "response": "En Stage AI Labs Sales Bot ofrecemos el servicio AI Messaging Suite. Para conocer más detalles sobre planes y precios específicos, un agente humano te puede ayudar con la información exacta.",
@@ -252,7 +261,7 @@
   "provisionJobId": null,
   "lastError": null,
   "createdAt": "2026-09-10T03:08:56.759Z",
-  "updatedAt": "2026-09-10T13:45:36.957Z",
+  "updatedAt": "2026-09-10T13:46:27.761Z",
   "publishedAt": "2026-09-10T03:08:56.759Z",
   "lastRestoreDrillAt": null,
   "lastRestoreDrillOk": null,

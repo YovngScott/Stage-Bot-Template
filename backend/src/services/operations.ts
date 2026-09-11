@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 
-export type FailureSource = "whatsapp" | "email" | "oauth" | "ai";
+export type FailureSource = "whatsapp" | "instagram" | "email" | "oauth" | "ai";
 export type FailureStatus = "pending" | "retrying" | "resolved" | "intervention";
 
 export interface OperationFailure {
@@ -92,7 +92,7 @@ export async function queueFailure(input: {
 
 export async function recordMetric(metric: {
   tenantSlug: string;
-  source: "whatsapp" | "email";
+  source: "whatsapp" | "instagram" | "email";
   latencyMs: number;
   tokens: number;
 }) {

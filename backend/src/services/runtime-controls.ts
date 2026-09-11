@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 
-export type Channel = "whatsapp" | "email";
+export type Channel = "whatsapp" | "instagram" | "email";
 export type RuntimeMode = "shadow" | "limited" | "live" | "paused";
 
 export interface RuntimePolicy {

@@ -7,8 +7,8 @@
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'wiltech-bot'
-primary_region = 'ewr'
+app = 'stage-stage-ai-labs-sales-bot-messaging'
+primary_region = 'dfw'
 
 [build]
   dockerfile = 'Dockerfile'
@@ -16,9 +16,9 @@ primary_region = 'ewr'
 [env]
   BAILEYS_AUTH_DIR = '/data/.baileys_auth'
   PORT = '8080'
-  # Esta app histórica conserva solamente los dos clientes ya instalados.
-  # Los nuevos bots se crean como apps Fly independientes desde Owner Console.
-  TENANT_SLUGS = 'dominguez-auto-pintura,wiltech'
+  # Esta instancia sirve exclusivamente al tenant de Stage AI Labs.
+  # Los demás bots se provisionan en sus propias apps desde Owner Console.
+  TENANT_SLUGS = 'stage-ai-labs-sales-bot'
 
 [[mounts]]
   source = 'bot_data'

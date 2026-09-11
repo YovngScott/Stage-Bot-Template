@@ -46,6 +46,47 @@ export interface InstagramIncomingMessage {
 }
 
 /**
+ * Describe solo la forma del webhook para diagnóstico. Nunca incluye IDs,
+ * texto, timestamps, nombres de usuario ni valores de adjuntos.
+ */
+export function summarizeInstagramWebhook(body: unknown): Record<string, unknown> {
+  const payload = body as { field?: unknown; value?: unknown; entry?: unknown[] } | null;
+  const describeEvent = (event: unknown) => {
+    const item = event as Record<string, unknown> | null;
+    const message = item?.message as Record<string, unknown> | undefined;
+    return {
+      keys: item && typeof item === "object" ? Object.keys(item).sort() : [],
+      hasSender: Boolean(item?.sender),
+      hasRecipient: Boolean(item?.recipient),
+      hasMessage: Boolean(message),
+      isEcho: message?.is_echo === true,
+      hasText: typeof message?.text === "string" && message.text.length > 0,
+      hasAttachments: Array.isArray(message?.attachments) && message.attachments.length > 0,
+    };
+  };
+  const entries = Array.isArray(payload?.entry) ? payload.entry : [];
+  return {
+    topLevelKeys: payload && typeof payload === "object" ? Object.keys(payload).sort() : [],
+    directField: typeof payload?.field === "string" ? payload.field : null,
+    entries: entries.map((entry) => {
+      const item = entry as { messaging?: unknown[]; changes?: unknown[] };
+      return {
+        messaging: Array.isArray(item.messaging) ? item.messaging.map(describeEvent) : [],
+        changes: Array.isArray(item.changes)
+          ? item.changes.map((change) => {
+              const typedChange = change as { field?: unknown; value?: unknown };
+              return {
+                field: typeof typedChange.field === "string" ? typedChange.field : null,
+                value: describeEvent(typedChange.value),
+              };
+            })
+          : [],
+      };
+    }),
+  };
+}
+
+/**
  * Normaliza el formato de Instagram Messaging. Ignora ecos del propio bot,
  * recibos de entrega/lectura y eventos sin contenido conversacional.
  */

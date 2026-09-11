@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import crypto from "node:crypto";
-import { instagramMessagesEndpoint, parseInstagramMessages, verifyInstagramChallenge, verifyInstagramSignature } from "./meta-instagram.js";
+import { instagramMessagesEndpoint, parseInstagramMessages, summarizeInstagramWebhook, verifyInstagramChallenge, verifyInstagramSignature } from "./meta-instagram.js";
 
 test("normaliza DMs y excluye los ecos del bot", () => {
   const messages = parseInstagramMessages({ entry: [{ id: "account", messaging: [
@@ -53,4 +53,23 @@ test("envía con el Graph de Instagram Login y codifica la ruta", () => {
     instagramMessagesEndpoint("stage/account", "v26.0"),
     "https://graph.instagram.com/v26.0/stage%2Faccount/messages",
   );
+});
+
+test("el diagnóstico de webhooks no expone contenido ni identificadores", () => {
+  const summary = summarizeInstagramWebhook({
+    object: "instagram",
+    entry: [{
+      id: "secret-account-id",
+      messaging: [{
+        sender: { id: "secret-sender-id" },
+        recipient: { id: "secret-recipient-id" },
+        message: { mid: "secret-message-id", text: "contenido privado", is_echo: true },
+      }],
+    }],
+  });
+  const serialized = JSON.stringify(summary);
+  assert.equal(serialized.includes("contenido privado"), false);
+  assert.equal(serialized.includes("secret-"), false);
+  assert.equal(serialized.includes('"isEcho":true'), true);
+  assert.equal(serialized.includes('"hasText":true'), true);
 });

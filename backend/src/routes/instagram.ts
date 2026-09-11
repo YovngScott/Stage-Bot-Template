@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { procesarMensajeInstagram } from "../services/instagram.js";
-import { instagramConfigured, parseInstagramMessages, verifyInstagramChallenge, verifyInstagramSignature } from "../services/meta-instagram.js";
+import { instagramConfigured, parseInstagramMessages, summarizeInstagramWebhook, verifyInstagramChallenge, verifyInstagramSignature } from "../services/meta-instagram.js";
 
 export const instagramRouter = Router({ mergeParams: true });
 
@@ -23,6 +23,9 @@ instagramRouter.post("/webhook", (req: Request, res: Response) => {
   const tenant = req.tenant!;
   const messages = parseInstagramMessages(req.body);
   console.info(`[instagram:${tenant.config.slug}] Webhook válido recibido (${messages.length} mensaje(s) procesable(s)).`);
+  if (messages.length === 0) {
+    console.info(`[instagram:${tenant.config.slug}] Forma redactada del webhook:`, JSON.stringify(summarizeInstagramWebhook(req.body)));
+  }
   res.sendStatus(200);
   void Promise.allSettled(messages.map((message) => procesarMensajeInstagram(tenant, message))).then((results) => {
     for (const result of results) {

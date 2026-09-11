@@ -12,6 +12,32 @@ test("normaliza DMs y excluye los ecos del bot", () => {
   assert.deepEqual(messages, [{ id: "one", senderId: "person", recipientId: "account", text: "Hola", mediaType: "text" }]);
 });
 
+test("normaliza el formato field/value usado por la prueba de Meta", () => {
+  const messages = parseInstagramMessages({
+    field: "messages",
+    value: {
+      sender: { id: "12334" },
+      recipient: { id: "23245" },
+      timestamp: "1527459824",
+      message: { mid: "random_mid", text: "random_text" },
+    },
+  });
+  assert.deepEqual(messages, [{ id: "random_mid", senderId: "12334", recipientId: "23245", text: "random_text", mediaType: "text" }]);
+});
+
+test("normaliza messages dentro de entry.changes", () => {
+  const messages = parseInstagramMessages({
+    entry: [{
+      id: "account",
+      changes: [{
+        field: "messages",
+        value: { sender: { id: "person" }, message: { mid: "change-one", text: "Hola desde changes" } },
+      }],
+    }],
+  });
+  assert.deepEqual(messages, [{ id: "change-one", senderId: "person", recipientId: "account", text: "Hola desde changes", mediaType: "text" }]);
+});
+
 test("challenge y firma requieren los secretos correctos", () => {
   process.env.META_INSTAGRAM_VERIFY_TOKEN = "verify";
   process.env.META_INSTAGRAM_APP_SECRET = "app-secret";

@@ -50,36 +50,47 @@ export interface InstagramIncomingMessage {
  * recibos de entrega/lectura y eventos sin contenido conversacional.
  */
 export function parseInstagramMessages(body: unknown): InstagramIncomingMessage[] {
-  const payload = body as { entry?: unknown[] } | null;
+  const payload = body as { entry?: unknown[]; field?: unknown; value?: unknown } | null;
   const result: InstagramIncomingMessage[] = [];
   const seen = new Set<string>();
 
+  const appendEvent = (event: unknown, fallbackRecipientId = "") => {
+    const item = event as { sender?: { id?: unknown }; recipient?: { id?: unknown }; message?: Record<string, unknown>; timestamp?: unknown };
+    const message = item?.message;
+    if (!message || message.is_echo === true) return;
+    const id = String(message.mid ?? "").trim();
+    const senderId = String(item.sender?.id ?? "").trim();
+    const messageRecipientId = String(item.recipient?.id ?? fallbackRecipientId).trim();
+    const attachment = Array.isArray(message.attachments) ? message.attachments[0] as { type?: unknown } | undefined : undefined;
+    const rawType = String(attachment?.type ?? "text");
+    const mediaType: InstagramIncomingMessage["mediaType"] =
+      rawType === "image" || rawType === "audio" || rawType === "video" || rawType === "share" ? rawType : rawType === "text" ? "text" : "unknown";
+    const text = String(
+      message.text ??
+        (mediaType === "image" ? "[Imagen recibida sin descripción]" : undefined) ??
+        (mediaType === "audio" ? "[Audio recibido: requiere revisión humana]" : undefined) ??
+        (mediaType === "video" ? "[Video recibido: requiere revisión humana]" : undefined) ??
+        (mediaType === "share" ? "[Contenido compartido recibido]" : undefined) ??
+        "",
+    ).trim();
+    if (id && senderId && messageRecipientId && text && !seen.has(id)) {
+      seen.add(id);
+      result.push({ id, senderId, recipientId: messageRecipientId, text, mediaType });
+    }
+  };
+
+  // El modal de pruebas de Meta entrega directamente { field, value }.
+  if (payload?.field === "messages") appendEvent(payload.value);
+
   for (const entry of Array.isArray(payload?.entry) ? payload.entry : []) {
-    const typedEntry = entry as { id?: unknown; messaging?: unknown[] };
+    const typedEntry = entry as { id?: unknown; messaging?: unknown[]; changes?: unknown[] };
     const recipientId = String(typedEntry.id ?? "").trim();
     for (const event of Array.isArray(typedEntry.messaging) ? typedEntry.messaging : []) {
-      const item = event as { sender?: { id?: unknown }; recipient?: { id?: unknown }; message?: Record<string, unknown> };
-      const message = item.message;
-      if (!message || message.is_echo === true) continue;
-      const id = String(message.mid ?? "").trim();
-      const senderId = String(item.sender?.id ?? "").trim();
-      const messageRecipientId = String(item.recipient?.id ?? recipientId).trim();
-      const attachment = Array.isArray(message.attachments) ? message.attachments[0] as { type?: unknown } | undefined : undefined;
-      const rawType = String(attachment?.type ?? "text");
-      const mediaType: InstagramIncomingMessage["mediaType"] =
-        rawType === "image" || rawType === "audio" || rawType === "video" || rawType === "share" ? rawType : rawType === "text" ? "text" : "unknown";
-      const text = String(
-        message.text ??
-          (mediaType === "image" ? "[Imagen recibida sin descripción]" : undefined) ??
-          (mediaType === "audio" ? "[Audio recibido: requiere revisión humana]" : undefined) ??
-          (mediaType === "video" ? "[Video recibido: requiere revisión humana]" : undefined) ??
-          (mediaType === "share" ? "[Contenido compartido recibido]" : undefined) ??
-          "",
-      ).trim();
-      if (id && senderId && messageRecipientId && text && !seen.has(id)) {
-        seen.add(id);
-        result.push({ id, senderId, recipientId: messageRecipientId, text, mediaType });
-      }
+      appendEvent(event, recipientId);
+    }
+    for (const change of Array.isArray(typedEntry.changes) ? typedEntry.changes : []) {
+      const typedChange = change as { field?: unknown; value?: unknown };
+      if (typedChange.field === "messages") appendEvent(typedChange.value, recipientId);
     }
   }
   return result;

@@ -97,12 +97,16 @@ export function parseInstagramMessages(body: unknown): InstagramIncomingMessage[
 }
 
 /** Envía una respuesta dentro de la ventana de mensajería autorizada por Meta. */
+export function instagramMessagesEndpoint(accountId: string, version: string): string {
+  return `https://graph.instagram.com/${encodeURIComponent(version)}/${encodeURIComponent(accountId)}/messages`;
+}
+
 export async function sendInstagramText(recipientId: string, text: string): Promise<void> {
   const token = required("META_INSTAGRAM_ACCESS_TOKEN");
   const accountId = required("META_INSTAGRAM_ACCOUNT_ID");
   const version = process.env.META_INSTAGRAM_API_VERSION?.trim() || "v26.0";
   const response = await conTimeout(
-    fetch(`https://graph.facebook.com/${encodeURIComponent(version)}/${encodeURIComponent(accountId)}/messages`, {
+    fetch(instagramMessagesEndpoint(accountId, version), {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ recipient: { id: recipientId }, messaging_type: "RESPONSE", message: { text: text.slice(0, 1000) } }),

@@ -5,7 +5,6 @@ import { instagramConfigured, parseInstagramMessages, verifyInstagramChallenge, 
 export const instagramRouter = Router({ mergeParams: true });
 
 instagramRouter.get("/webhook", (req: Request, res: Response) => {
-  if (!instagramConfigured()) return res.sendStatus(404);
   const challenge = verifyInstagramChallenge(req.query["hub.mode"], req.query["hub.verify_token"], req.query["hub.challenge"]);
   if (!challenge) return res.sendStatus(403);
   return res.status(200).send(challenge);

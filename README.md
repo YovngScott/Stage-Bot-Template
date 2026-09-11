@@ -39,6 +39,20 @@ WhatsApp cliente N ─┼─▶ sesión Baileys N ─┘        │           �
   login (Supabase Auth) y sus datos aislados por RLS.
 - **`supabase/schema.sql`** — Esquema completo, multi-cliente, idempotente.
 
+### IA y Groq a escala
+
+Stage usa una clave de Groq administrada por la plataforma, guardada exclusivamente como secreto
+del runtime (`GROQ_API_KEY`). No se crea una clave por cada persona que abre un bot ni se incluye
+una clave en el dashboard, los JSON de tenant, Git ni logs. Cada bot conserva su propio límite de
+mensajes, tokens y presupuesto mensual en `tenant_runtime_policies`; el ledger registra los tokens
+y el coste estimado para detener el bot antes de exceder su plan.
+
+Para empresas que exijan BYOK, el siguiente paso es un flujo autenticado de "Conectar mi proveedor"
+que guarde una referencia cifrada en un gestor de secretos y la inyecte únicamente en la instancia
+dedicada del tenant. No se aceptan claves por prompts, formularios del navegador ni archivos de
+configuración. Groq permite organizar claves y límites por proyecto, por lo que Stage puede separar
+producción, pruebas y clientes enterprise sin exponer sus credenciales.
+
 ## Cómo onboardear un cliente NUEVO (sin crear infraestructura)
 
 1. **Config del negocio**: crea `backend/config/tenants/<slug>.json` usando uno de los tenants

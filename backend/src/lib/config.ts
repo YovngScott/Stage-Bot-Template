@@ -37,6 +37,17 @@ export const config = {
       process.env.GROQ_FALLBACK_MODEL ?? process.env.GROQ_MODEL ?? "openai/gpt-oss-120b",
   },
 
+  // Tarifas configurables por entorno para el ledger interno de cada tenant.
+  // Se expresan en USD por millón de tokens y se dejan en 0 hasta que Finanzas
+  // cargue la tarifa vigente del modelo contratado. Así nunca inventamos un
+  // coste ni suspendemos a un cliente usando un precio desactualizado.
+  aiPricing: {
+    groqInputPerMillionUsd: Number(process.env.GROQ_INPUT_COST_PER_MILLION_USD ?? 0),
+    groqOutputPerMillionUsd: Number(process.env.GROQ_OUTPUT_COST_PER_MILLION_USD ?? 0),
+    geminiInputPerMillionUsd: Number(process.env.GEMINI_INPUT_COST_PER_MILLION_USD ?? 0),
+    geminiOutputPerMillionUsd: Number(process.env.GEMINI_OUTPUT_COST_PER_MILLION_USD ?? 0),
+  },
+
   gemini: {
     apiKey: process.env.GEMINI_API_KEY ?? "",
     model: process.env.GEMINI_MODEL ?? "gemini-flash-lite-latest",

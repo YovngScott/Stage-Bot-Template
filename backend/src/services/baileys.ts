@@ -35,6 +35,7 @@ import {
   checkUsage,
   completeChannelTestResponse,
   consentCommand,
+  estimateAiCostUsd,
   getRuntimePolicy,
   isConversationHuman,
   isOptedOut,
@@ -959,7 +960,7 @@ async function procesarMensajeEntrante(
   // seguridad final: pase lo que pase (proveedor colgado, bucle de
   // herramientas atascado), el bot SIEMPRE continúa y responde algo. Nunca
   // se queda en "escribiendo…" para siempre.
-  let respuesta: { texto: string; tokensEntrada?: number; tokensSalida?: number } | null = null;
+  let respuesta: { texto: string; tokensEntrada?: number; tokensSalida?: number; provider?: "groq" | "gemini" } | null = null;
   const inicioIa = Date.now();
   try {
     if (mediaBuffer && mimeType) {
@@ -975,6 +976,7 @@ async function procesarMensajeEntrante(
           texto: resGemini.texto,
           tokensEntrada: resGemini.tokensEntrada,
           tokensSalida: resGemini.tokensSalida,
+          provider: "gemini",
         };
       } catch (geminiErr) {
         console.error(
@@ -1014,6 +1016,21 @@ async function procesarMensajeEntrante(
   // guardado y la operación durable avisa al owner. No se improvisa ni envía.
   if (!textoFinal) return;
 
+  const precioIa = respuesta?.provider === "gemini"
+    ? {
+        inputPerMillionUsd: config.aiPricing.geminiInputPerMillionUsd,
+        outputPerMillionUsd: config.aiPricing.geminiOutputPerMillionUsd,
+      }
+    : {
+        inputPerMillionUsd: config.aiPricing.groqInputPerMillionUsd,
+        outputPerMillionUsd: config.aiPricing.groqOutputPerMillionUsd,
+      };
+  const costoIaUsd = estimateAiCostUsd({
+    inputTokens: respuesta?.tokensEntrada,
+    outputTokens: respuesta?.tokensSalida,
+    ...precioIa,
+  });
+
   const runtimePolicy = await getRuntimePolicy(tenant.id);
   const contactAllowed = canContactNow(new Date(), tenant.config.zonaHoraria, tenant.config.schedule);
   if (!channelTestId && (!shouldAutoSend(runtimePolicy, waMessageId) || !contactAllowed)) {
@@ -1030,6 +1047,7 @@ async function procesarMensajeEntrante(
       messages: 1,
       inputTokens: respuesta?.tokensEntrada,
       outputTokens: respuesta?.tokensSalida,
+      costUsd: costoIaUsd,
     }).catch(() => undefined);
     return;
   }
@@ -1099,6 +1117,7 @@ async function procesarMensajeEntrante(
     messages: 1,
     inputTokens: respuesta?.tokensEntrada,
     outputTokens: respuesta?.tokensSalida,
+    costUsd: costoIaUsd,
   }).catch(() => undefined);
 }
 

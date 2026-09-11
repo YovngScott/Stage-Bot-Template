@@ -22,17 +22,34 @@ export async function generarRespuesta(
   const sensitiveResponse = guardSensitiveAction(tenant, mensaje);
   if (sensitiveResponse) return { texto: sensitiveResponse, tokensEntrada: 0, tokensSalida: 0 };
 
-  const secured = (result: { texto: string; tokensEntrada: number; tokensSalida: number }) => ({
+  type ProviderResult = {
+    texto: string;
+    tokensEntrada: number;
+    tokensSalida: number;
+    provider: "groq" | "gemini";
+  };
+  const secured = (result: ProviderResult) => ({
     ...result,
     texto: guardOutput(tenant, result.texto),
   });
-  const providers: Array<() => Promise<{ texto: string; tokensEntrada: number; tokensSalida: number }>> = [];
+  const providers: Array<() => Promise<ProviderResult>> = [];
   if (config.ai.provider !== "gemini") {
-    providers.push(() => conGroq(tenant, cliente, historial, mensaje));
+    providers.push(async () => ({
+      ...(await conGroq(tenant, cliente, historial, mensaje)),
+      provider: "groq",
+    }));
     if (config.groq.fallbackApiKey && config.groq.fallbackApiKey !== config.groq.apiKey) {
-      providers.push(() => conGroq(tenant, cliente, historial, mensaje, { apiKey: config.groq.fallbackApiKey, model: config.groq.fallbackModel }));
+      providers.push(async () => ({
+        ...(await conGroq(tenant, cliente, historial, mensaje, { apiKey: config.groq.fallbackApiKey, model: config.groq.fallbackModel })),
+        provider: "groq",
+      }));
     }
   }
-  if (config.gemini.apiKey) providers.push(() => conGemini(tenant, cliente, historial, mensaje));
+  if (config.gemini.apiKey) {
+    providers.push(async () => ({
+      ...(await conGemini(tenant, cliente, historial, mensaje)),
+      provider: "gemini",
+    }));
+  }
   return secured(await runProviderFallback(providers));
 }

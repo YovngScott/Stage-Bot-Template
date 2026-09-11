@@ -99,7 +99,14 @@ export async function ejecutarTool(
     if (cliente.tenant_id !== tenant.id) {
       throw new Error("Aislamiento de tenant: el cliente no pertenece a este bot.");
     }
-    input = validateToolCall(nombre, input, tenant);
+    try {
+      input = validateToolCall(nombre, input, tenant);
+    } catch (error) {
+      // Las validaciones (por ejemplo un tenant_id inyectado) no se devuelven
+      // al modelo ni al canal: sus detalles revelan el contrato interno.
+      console.warn(`[tools] Argumentos inválidos para ${nombre}:`, error);
+      return { resultado: "Argumentos inválidos o incompletos para esta acción.", esError: true };
+    }
     switch (nombre) {
       case "consultar_catalogo": {
         const busqueda = String(input.busqueda ?? "").trim();

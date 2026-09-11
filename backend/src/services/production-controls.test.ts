@@ -4,7 +4,7 @@ import { evaluarHeuristica } from "./asistente/heuristica.js";
 
 process.env.SUPABASE_URL ||= "https://tests.invalid";
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test-service-role";
-const { consentCommand, shouldAutoSend } = await import("./runtime-controls.js");
+const { consentCommand, estimateAiCostUsd, shouldAutoSend } = await import("./runtime-controls.js");
 type RuntimePolicy = import("./runtime-controls.js").RuntimePolicy;
 
 const policy: RuntimePolicy = {
@@ -22,6 +22,21 @@ test("modo live siempre envía", () => {
 });
 test("despliegue gradual es determinista por mensaje", () => {
   assert.equal(shouldAutoSend(policy, "message-42"), shouldAutoSend(policy, "message-42"));
+});
+test("estima el coste de IA sin inventar precios ni aceptar valores negativos", () => {
+  assert.equal(
+    estimateAiCostUsd({
+      inputTokens: 1_000_000,
+      outputTokens: 500_000,
+      inputPerMillionUsd: 0.1,
+      outputPerMillionUsd: 0.4,
+    }),
+    0.3,
+  );
+  assert.equal(
+    estimateAiCostUsd({ inputTokens: -10, outputTokens: 12, inputPerMillionUsd: 1, outputPerMillionUsd: -2 }),
+    0,
+  );
 });
 test("exclusión y reactivación se reconocen sin ambigüedad", () => {
   assert.equal(consentCommand("STOP"), "opted_out");

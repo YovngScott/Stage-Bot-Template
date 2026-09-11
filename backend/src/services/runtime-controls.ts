@@ -140,6 +140,25 @@ export async function isOptedOut(tenantId: string, channel: Channel, contact: st
 
 export interface UsageDecision { allowed: boolean; reason: string | null; warning: boolean; policy: RuntimePolicy }
 
+/**
+ * Calcula el cargo estimado del proveedor desde precios administrados por
+ * Stage. Las claves y precios individuales de clientes nunca llegan a esta
+ * función ni se almacenan en archivos de tenant.
+ */
+export function estimateAiCostUsd(input: {
+  inputTokens?: number;
+  outputTokens?: number;
+  inputPerMillionUsd?: number;
+  outputPerMillionUsd?: number;
+}): number {
+  const clean = (value: number | undefined) =>
+    Number.isFinite(value) && Number(value) > 0 ? Number(value) : 0;
+  const cost =
+    (clean(input.inputTokens) * clean(input.inputPerMillionUsd)) / 1_000_000 +
+    (clean(input.outputTokens) * clean(input.outputPerMillionUsd)) / 1_000_000;
+  return Number(cost.toFixed(6));
+}
+
 export async function checkUsage(tenantId: string, channel: Channel): Promise<UsageDecision> {
   const policy = await getRuntimePolicy(tenantId);
   if (policy.mode === "paused") return { allowed: false, reason: policy.pausedReason || "Bot pausado", warning: true, policy };

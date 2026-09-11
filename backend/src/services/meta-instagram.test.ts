@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import crypto from "node:crypto";
-import { instagramMessagesEndpoint, parseInstagramMessages, summarizeInstagramWebhook, verifyInstagramChallenge, verifyInstagramSignature } from "./meta-instagram.js";
+import {
+  instagramMessageDetailsEndpoint,
+  instagramMessagesEndpoint,
+  parseInstagramMessageEdits,
+  parseInstagramMessages,
+  summarizeInstagramWebhook,
+  verifyInstagramChallenge,
+  verifyInstagramSignature,
+} from "./meta-instagram.js";
 
 test("normaliza DMs y excluye los ecos del bot", () => {
   const messages = parseInstagramMessages({ entry: [{ id: "account", messaging: [
@@ -38,6 +46,23 @@ test("normaliza messages dentro de entry.changes", () => {
   assert.deepEqual(messages, [{ id: "change-one", senderId: "person", recipientId: "account", text: "Hola desde changes", mediaType: "text" }]);
 });
 
+test("normaliza message_edit completo como mensaje conversacional", () => {
+  const messages = parseInstagramMessages({ entry: [{ id: "account", messaging: [{
+    sender: { id: "person" },
+    recipient: { id: "account" },
+    message_edit: { mid: "edited-one", text: "Texto corregido", num_edit: 1 },
+  }] }] });
+  assert.deepEqual(messages, [{ id: "edited-one", senderId: "person", recipientId: "account", text: "Texto corregido", mediaType: "text" }]);
+});
+
+test("extrae message_edit reducido para recuperar el contenido sin duplicarlo", () => {
+  const edits = parseInstagramMessageEdits({ entry: [{ messaging: [
+    { message_edit: { mid: "edited-one", num_edit: 0 } },
+    { message_edit: { mid: "edited-one", num_edit: 0 } },
+  ] }] });
+  assert.deepEqual(edits, [{ id: "edited-one", editNumber: 0 }]);
+});
+
 test("challenge y firma requieren los secretos correctos", () => {
   process.env.META_INSTAGRAM_VERIFY_TOKEN = "verify";
   process.env.META_INSTAGRAM_APP_SECRET = "app-secret";
@@ -52,6 +77,13 @@ test("envía con el Graph de Instagram Login y codifica la ruta", () => {
   assert.equal(
     instagramMessagesEndpoint("stage/account", "v26.0"),
     "https://graph.instagram.com/v26.0/stage%2Faccount/messages",
+  );
+});
+
+test("recupera los detalles de una edición desde el Graph de Instagram", () => {
+  assert.equal(
+    instagramMessageDetailsEndpoint("mid/with spaces", "v26.0"),
+    "https://graph.instagram.com/v26.0/mid%2Fwith%20spaces?fields=id%2Cmessage%2Cfrom%2Cto",
   );
 });
 

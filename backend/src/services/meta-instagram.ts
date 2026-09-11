@@ -45,6 +45,11 @@ export interface InstagramIncomingMessage {
   mediaType: "text" | "image" | "audio" | "video" | "share" | "unknown";
 }
 
+export interface InstagramMessageEditReference {
+  id: string;
+  editNumber: number;
+}
+
 /**
  * Describe solo la forma del webhook para diagnóstico. Nunca incluye IDs,
  * texto, timestamps, nombres de usuario ni valores de adjuntos.
@@ -112,8 +117,16 @@ export function parseInstagramMessages(body: unknown): InstagramIncomingMessage[
   const seen = new Set<string>();
 
   const appendEvent = (event: unknown, fallbackRecipientId = "") => {
-    const item = event as { sender?: { id?: unknown }; recipient?: { id?: unknown }; message?: Record<string, unknown>; timestamp?: unknown };
-    const message = item?.message;
+    const item = event as {
+      sender?: { id?: unknown };
+      recipient?: { id?: unknown };
+      message?: Record<string, unknown>;
+      message_edit?: Record<string, unknown>;
+      timestamp?: unknown;
+    };
+    // Algunas versiones de Meta entregan la edición completa en message_edit.
+    // Las ediciones reducidas (solo mid/num_edit) se hidratan aparte.
+    const message = item?.message ?? (typeof item?.message_edit?.text === "string" ? item.message_edit : undefined);
     if (!message || message.is_echo === true) return;
     const id = String(message.mid ?? "").trim();
     const senderId = String(item.sender?.id ?? "").trim();
@@ -151,6 +164,70 @@ export function parseInstagramMessages(body: unknown): InstagramIncomingMessage[
     }
   }
   return result;
+}
+
+/** Extrae referencias de ediciones reducidas que Meta entrega sin texto ni remitente. */
+export function parseInstagramMessageEdits(body: unknown): InstagramMessageEditReference[] {
+  const payload = body as { entry?: unknown[]; field?: unknown; value?: unknown } | null;
+  const result: InstagramMessageEditReference[] = [];
+  const seen = new Set<string>();
+
+  const append = (event: unknown) => {
+    const edit = (event as { message_edit?: Record<string, unknown> } | null)?.message_edit;
+    if (!edit || typeof edit.text === "string") return;
+    const id = String(edit.mid ?? "").trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const rawEditNumber = Number(edit.num_edit ?? edit.num_edits ?? 0);
+    result.push({ id, editNumber: Number.isSafeInteger(rawEditNumber) && rawEditNumber >= 0 ? rawEditNumber : 0 });
+  };
+
+  if (payload?.field === "message_edit" || payload?.field === "messages") append(payload.value);
+  for (const entry of Array.isArray(payload?.entry) ? payload.entry : []) {
+    const typedEntry = entry as { messaging?: unknown[]; changes?: unknown[] };
+    for (const event of Array.isArray(typedEntry.messaging) ? typedEntry.messaging : []) append(event);
+    for (const change of Array.isArray(typedEntry.changes) ? typedEntry.changes : []) {
+      append((change as { value?: unknown }).value);
+    }
+  }
+  return result;
+}
+
+export function instagramMessageDetailsEndpoint(messageId: string, version: string): string {
+  const query = new URLSearchParams({ fields: "id,message,from,to" });
+  return `https://graph.instagram.com/${encodeURIComponent(version)}/${encodeURIComponent(messageId)}?${query.toString()}`;
+}
+
+/**
+ * Recupera el contenido de una edición reducida usando el mid firmado por Meta.
+ * El token limita la consulta a mensajes accesibles por la cuenta conectada.
+ */
+export async function resolveInstagramMessageEdit(reference: InstagramMessageEditReference): Promise<InstagramIncomingMessage> {
+  const token = required("META_INSTAGRAM_ACCESS_TOKEN");
+  const accountId = required("META_INSTAGRAM_ACCOUNT_ID");
+  const version = process.env.META_INSTAGRAM_API_VERSION?.trim() || "v26.0";
+  const response = await conTimeout(
+    fetch(instagramMessageDetailsEndpoint(reference.id, version), {
+      headers: { authorization: `Bearer ${token}` },
+    }),
+    15_000,
+    "meta-instagram-message-details",
+  );
+  if (!response.ok) {
+    throw new Error(`Meta Instagram no permitió recuperar el mensaje editado (${response.status}).`);
+  }
+  const details = await response.json() as {
+    id?: unknown;
+    message?: unknown;
+    from?: { id?: unknown };
+  };
+  const senderId = String(details.from?.id ?? "").trim();
+  const text = String(details.message ?? "").trim();
+  if (!senderId || !text) {
+    throw new Error("Meta Instagram devolvió una edición sin remitente o sin texto.");
+  }
+  const id = reference.editNumber > 0 ? `${reference.id}:edit:${reference.editNumber}` : reference.id;
+  return { id, senderId, recipientId: accountId, text, mediaType: "text" };
 }
 
 /** Envía una respuesta dentro de la ventana de mensajería autorizada por Meta. */

@@ -1,6 +1,14 @@
 import { Router, type Request, type Response } from "express";
 import { procesarMensajeInstagram } from "../services/instagram.js";
-import { instagramConfigured, parseInstagramMessages, summarizeInstagramWebhook, verifyInstagramChallenge, verifyInstagramSignature } from "../services/meta-instagram.js";
+import {
+  instagramConfigured,
+  parseInstagramMessageEdits,
+  parseInstagramMessages,
+  resolveInstagramMessageEdit,
+  summarizeInstagramWebhook,
+  verifyInstagramChallenge,
+  verifyInstagramSignature,
+} from "../services/meta-instagram.js";
 
 export const instagramRouter = Router({ mergeParams: true });
 
@@ -22,12 +30,17 @@ instagramRouter.post("/webhook", (req: Request, res: Response) => {
   }
   const tenant = req.tenant!;
   const messages = parseInstagramMessages(req.body);
-  console.info(`[instagram:${tenant.config.slug}] Webhook válido recibido (${messages.length} mensaje(s) procesable(s)).`);
-  if (messages.length === 0) {
+  const edits = parseInstagramMessageEdits(req.body);
+  console.info(`[instagram:${tenant.config.slug}] Webhook válido recibido (${messages.length} mensaje(s), ${edits.length} edición(es) para recuperar).`);
+  if (messages.length === 0 && edits.length === 0) {
     console.info(`[instagram:${tenant.config.slug}] Forma redactada del webhook:`, JSON.stringify(summarizeInstagramWebhook(req.body)));
   }
   res.sendStatus(200);
-  void Promise.allSettled(messages.map((message) => procesarMensajeInstagram(tenant, message))).then((results) => {
+  const work = [
+    ...messages.map((message) => procesarMensajeInstagram(tenant, message)),
+    ...edits.map(async (edit) => procesarMensajeInstagram(tenant, await resolveInstagramMessageEdit(edit))),
+  ];
+  void Promise.allSettled(work).then((results) => {
     for (const result of results) {
       if (result.status === "rejected") console.error(`[instagram:${tenant.config.slug}] Webhook Meta falló:`, result.reason);
     }

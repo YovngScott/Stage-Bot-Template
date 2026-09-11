@@ -51,6 +51,21 @@ export interface InstagramIncomingMessage {
  */
 export function summarizeInstagramWebhook(body: unknown): Record<string, unknown> {
   const payload = body as { field?: unknown; value?: unknown; entry?: unknown[] } | null;
+  const describeShape = (value: unknown, depth = 0): unknown => {
+    if (value === null) return "null";
+    if (Array.isArray(value)) {
+      return { type: "array", length: value.length, item: value.length > 0 && depth < 3 ? describeShape(value[0], depth + 1) : null };
+    }
+    if (typeof value !== "object") return typeof value;
+    const record = value as Record<string, unknown>;
+    return {
+      type: "object",
+      keys: Object.keys(record).sort(),
+      children: depth < 3
+        ? Object.fromEntries(Object.entries(record).map(([key, child]) => [key, describeShape(child, depth + 1)]))
+        : undefined,
+    };
+  };
   const describeEvent = (event: unknown) => {
     const item = event as Record<string, unknown> | null;
     const message = item?.message as Record<string, unknown> | undefined;
@@ -62,6 +77,7 @@ export function summarizeInstagramWebhook(body: unknown): Record<string, unknown
       isEcho: message?.is_echo === true,
       hasText: typeof message?.text === "string" && message.text.length > 0,
       hasAttachments: Array.isArray(message?.attachments) && message.attachments.length > 0,
+      messageEditShape: item?.message_edit ? describeShape(item.message_edit) : null,
     };
   };
   const entries = Array.isArray(payload?.entry) ? payload.entry : [];

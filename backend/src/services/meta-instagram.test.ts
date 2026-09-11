@@ -73,3 +73,26 @@ test("el diagnóstico de webhooks no expone contenido ni identificadores", () =>
   assert.equal(serialized.includes('"isEcho":true'), true);
   assert.equal(serialized.includes('"hasText":true'), true);
 });
+
+test("el diagnóstico de message_edit muestra solo su estructura", () => {
+  const summary = summarizeInstagramWebhook({
+    object: "instagram",
+    entry: [{
+      id: "secret-account-id",
+      messaging: [{
+        timestamp: 123,
+        message_edit: {
+          sender: { id: "secret-sender-id" },
+          message: { mid: "secret-message-id", text: "contenido privado" },
+        },
+      }],
+    }],
+  });
+  const serialized = JSON.stringify(summary);
+  assert.equal(serialized.includes("contenido privado"), false);
+  assert.equal(serialized.includes("secret-"), false);
+  assert.equal(serialized.includes('"messageEditShape"'), true);
+  assert.equal(serialized.includes('"sender"'), true);
+  assert.equal(serialized.includes('"message"'), true);
+  assert.equal(serialized.includes('"text":"string"'), true);
+});

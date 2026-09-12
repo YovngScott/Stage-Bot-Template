@@ -6,6 +6,8 @@ import { resolverTenant } from "./lib/tenantMiddleware.js";
 import { serviciosRouter } from "./routes/servicios.js";
 import { whatsappRouter } from "./routes/whatsapp.js";
 import { instagramRouter } from "./routes/instagram.js";
+import { instagramSettingsRouter } from "./routes/instagram-settings.js";
+import { instagramSharedRouter } from "./routes/instagram-shared.js";
 import { empleadosRouter } from "./routes/empleados.js";
 import { calendarRouter } from "./routes/calendar.js";
 import { reportesRouter } from "./routes/reportes.js";
@@ -56,7 +58,9 @@ app.get("/health", (_req, res) => {
 app.use("/api/:slug/auth", resolverTenant, authRouter);
 app.use("/api/:slug/servicios", resolverTenant, serviciosRouter);
 app.use("/api/:slug/whatsapp", resolverTenant, whatsappRouter);
+app.use("/api/meta/instagram", instagramSharedRouter);
 app.use("/api/:slug/instagram", resolverTenant, instagramRouter);
+app.use("/api/:slug/instagram", resolverTenant, instagramSettingsRouter);
 app.use("/api/:slug/empleados", resolverTenant, empleadosRouter);
 app.use("/api/:slug/calendar", resolverTenant, calendarRouter);
 app.use("/api/:slug/reportes", resolverTenant, reportesRouter);

@@ -1,7 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { procesarMensajeInstagram } from "../services/instagram.js";
+import { getInstagramConnection } from "../services/instagram-connections.js";
+import { instagramContext } from "../services/instagram-context.js";
 import {
-  instagramConfigured,
   parseInstagramMessageEdits,
   parseInstagramMessages,
   resolveInstagramMessageEdit,
@@ -18,17 +19,17 @@ instagramRouter.get("/webhook", (req: Request, res: Response) => {
   return res.status(200).send(challenge);
 });
 
-instagramRouter.post("/webhook", (req: Request, res: Response) => {
-  if (!instagramConfigured()) {
-    console.warn("[instagram] Webhook rechazado: configuración incompleta.");
-    return res.sendStatus(404);
-  }
+instagramRouter.post("/webhook", async (req: Request, res: Response) => {
   const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
-  if (!rawBody || !verifyInstagramSignature(rawBody, req.header("x-hub-signature-256"))) {
+  if (!rawBody || !(verifyInstagramSignature(rawBody, req.header("x-hub-signature-256")) || (process.env.META_APP_SECRET && verifyInstagramSignature(rawBody, req.header("x-hub-signature-256"), process.env.META_APP_SECRET)))) {
     console.warn("[instagram] Webhook rechazado: firma inválida o cuerpo crudo ausente.");
     return res.sendStatus(401);
   }
   const tenant = req.tenant!;
+  let connection;
+  try { connection = await getInstagramConnection(tenant); }
+  catch { return res.sendStatus(503); }
+  if (!connection) return res.sendStatus(200);
   const messages = parseInstagramMessages(req.body);
   const edits = parseInstagramMessageEdits(req.body);
   console.info(`[instagram:${tenant.config.slug}] Webhook válido recibido (${messages.length} mensaje(s), ${edits.length} edición(es) para recuperar).`);
@@ -36,6 +37,7 @@ instagramRouter.post("/webhook", (req: Request, res: Response) => {
     console.info(`[instagram:${tenant.config.slug}] Forma redactada del webhook:`, JSON.stringify(summarizeInstagramWebhook(req.body)));
   }
   res.sendStatus(200);
+  instagramContext.run(connection, () => {
   const work = [
     ...messages.map((message) => procesarMensajeInstagram(tenant, message)),
     ...edits.map(async (edit) => procesarMensajeInstagram(tenant, await resolveInstagramMessageEdit(edit))),
@@ -44,5 +46,6 @@ instagramRouter.post("/webhook", (req: Request, res: Response) => {
     for (const result of results) {
       if (result.status === "rejected") console.error(`[instagram:${tenant.config.slug}] Webhook Meta falló:`, result.reason);
     }
+  });
   });
 });

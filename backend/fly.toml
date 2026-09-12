@@ -19,6 +19,7 @@ primary_region = 'dfw'
   # Esta instancia sirve exclusivamente al tenant de Stage AI Labs.
   # Los demás bots se provisionan en sus propias apps desde Owner Console.
   TENANT_SLUGS = 'stage-ai-labs-sales-bot'
+  META_INSTAGRAM_LEGACY_TENANT_SLUG = 'stage-ai-labs-sales-bot'
 
 [[mounts]]
   source = 'bot_data'

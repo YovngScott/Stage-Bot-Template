@@ -15,3 +15,4 @@ build
 **/.wrangler
 *.log
 npm-debug.log*
+client-dashboard/qa

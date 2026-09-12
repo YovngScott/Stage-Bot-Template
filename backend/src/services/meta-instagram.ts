@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
 import { conTimeout } from "../lib/timeout.js";
+import { instagramCredential, instagramGraphHost } from "./instagram-context.js";
 
 function required(name: string): string {
-  const value = process.env[name]?.trim();
+  const value = instagramCredential(name);
   if (!value) throw new Error(`Falta el secreto ${name} para Instagram Messaging.`);
   return value;
 }
@@ -28,8 +29,7 @@ export function verifyInstagramChallenge(mode: unknown, token: unknown, challeng
 }
 
 /** Verifica el cuerpo crudo, antes de confiar en un evento recibido. */
-export function verifyInstagramSignature(rawBody: Buffer, signature: string | undefined): boolean {
-  const secret = process.env.META_INSTAGRAM_APP_SECRET?.trim();
+export function verifyInstagramSignature(rawBody: Buffer, signature: string | undefined, secret = process.env.META_INSTAGRAM_APP_SECRET?.trim()): boolean {
   if (!secret || !signature?.startsWith("sha256=")) return false;
   const expected = `sha256=${crypto.createHmac("sha256", secret).update(rawBody).digest("hex")}`;
   const given = Buffer.from(signature);
@@ -43,6 +43,7 @@ export interface InstagramIncomingMessage {
   recipientId: string;
   text: string;
   mediaType: "text" | "image" | "audio" | "video" | "share" | "unknown";
+  mediaUrl?: string;
 }
 
 export interface InstagramMessageEditReference {
@@ -56,8 +57,8 @@ export interface InstagramMessageEditReference {
  * explícitamente; ningún otro destinatario queda autorizado.
  */
 export function isConfiguredInstagramRecipient(recipientId: string): boolean {
-  const configuredAccount = process.env.META_INSTAGRAM_ACCOUNT_ID?.trim();
-  const webhookRecipient = process.env.META_INSTAGRAM_WEBHOOK_RECIPIENT_ID?.trim();
+  const configuredAccount = instagramCredential("META_INSTAGRAM_ACCOUNT_ID");
+  const webhookRecipient = instagramCredential("META_INSTAGRAM_WEBHOOK_RECIPIENT_ID");
   return Boolean(
     recipientId &&
       configuredAccount &&
@@ -146,7 +147,7 @@ export function parseInstagramMessages(body: unknown): InstagramIncomingMessage[
     const id = String(message.mid ?? "").trim();
     const senderId = String(item.sender?.id ?? "").trim();
     const messageRecipientId = String(item.recipient?.id ?? fallbackRecipientId).trim();
-    const attachment = Array.isArray(message.attachments) ? message.attachments[0] as { type?: unknown } | undefined : undefined;
+    const attachment = Array.isArray(message.attachments) ? message.attachments[0] as { type?: unknown; payload?: { url?: unknown } } | undefined : undefined;
     const rawType = String(attachment?.type ?? "text");
     const mediaType: InstagramIncomingMessage["mediaType"] =
       rawType === "image" || rawType === "audio" || rawType === "video" || rawType === "share" ? rawType : rawType === "text" ? "text" : "unknown";
@@ -160,7 +161,8 @@ export function parseInstagramMessages(body: unknown): InstagramIncomingMessage[
     ).trim();
     if (id && senderId && messageRecipientId && text && !seen.has(id)) {
       seen.add(id);
-      result.push({ id, senderId, recipientId: messageRecipientId, text, mediaType });
+      const mediaUrl = typeof attachment?.payload?.url === "string" ? attachment.payload.url : undefined;
+      result.push({ id, senderId, recipientId: messageRecipientId, text, mediaType, ...(mediaUrl ? { mediaUrl } : {}) });
     }
   };
 
@@ -210,7 +212,7 @@ export function parseInstagramMessageEdits(body: unknown): InstagramMessageEditR
 
 export function instagramMessageDetailsEndpoint(messageId: string, version: string): string {
   const query = new URLSearchParams({ fields: "id,message,from,to" });
-  return `https://graph.instagram.com/${encodeURIComponent(version)}/${encodeURIComponent(messageId)}?${query.toString()}`;
+  return `https://${instagramGraphHost()}/${encodeURIComponent(version)}/${encodeURIComponent(messageId)}?${query.toString()}`;
 }
 
 export function instagramConversationsEndpoint(accountId: string, version: string): string {
@@ -219,7 +221,7 @@ export function instagramConversationsEndpoint(accountId: string, version: strin
     limit: "25",
     fields: "participants,messages.limit(25){id,from,to,message}",
   });
-  return `https://graph.instagram.com/${encodeURIComponent(version)}/${encodeURIComponent(accountId)}/conversations?${query.toString()}`;
+  return `https://${instagramGraphHost()}/${encodeURIComponent(version)}/${encodeURIComponent(accountId)}/conversations?${query.toString()}`;
 }
 
 /** Encuentra un mensaje en la bandeja cuando el webhook solo aporta su mid. */
@@ -284,7 +286,7 @@ export async function resolveInstagramMessageEdit(reference: InstagramMessageEdi
 
 /** Envía una respuesta dentro de la ventana de mensajería autorizada por Meta. */
 export function instagramMessagesEndpoint(accountId: string, version: string): string {
-  return `https://graph.instagram.com/${encodeURIComponent(version)}/${encodeURIComponent(accountId)}/messages`;
+  return `https://${instagramGraphHost()}/${encodeURIComponent(version)}/${encodeURIComponent(accountId)}/messages`;
 }
 
 export async function sendInstagramText(recipientId: string, text: string): Promise<void> {

@@ -6,6 +6,10 @@ import { guardarMensaje, obtenerHistorialOptimizado, obtenerOCrearCliente } from
 import { generarRespuesta } from "./ia.js";
 import { isConfiguredInstagramRecipient, sendInstagramText, type InstagramIncomingMessage } from "./meta-instagram.js";
 import { queueFailure, recordMetric } from "./operations.js";
+import { interpretInstagramMedia } from "./instagram-media.js";
+import { supabase } from "../lib/supabase.js";
+import { instagramRulesSchema, matchInstagramRule } from "./instagram-rules.js";
+import { guardOutput, guardScope, guardSensitiveAction } from "./scope-guard.js";
 import {
   checkUsage,
   consentCommand,
@@ -36,6 +40,8 @@ export async function procesarMensajeInstagram(tenant: Tenant, incoming: Instagr
   if (!isConfiguredInstagramRecipient(incoming.recipientId)) {
     throw new Error("El evento no pertenece a la cuenta de Instagram configurada para este bot.");
   }
+  // Sparse edit hydration can also recover one of our own outgoing messages.
+  if (isConfiguredInstagramRecipient(incoming.senderId)) return;
   const conversationKey = `${tenant.id}:instagram:${incoming.senderId}`;
   latestMessageByConversation.set(conversationKey, incoming.id);
   await enqueue(conversationKey, async () => {
@@ -63,7 +69,8 @@ export async function procesarMensajeInstagram(tenant: Tenant, incoming: Instagr
     });
     if (saved === null) return;
 
-    const consent = consentCommand(incoming.text);
+    let messageText = incoming.text;
+    const consent = consentCommand(messageText);
     if (consent) {
       await setConsent(tenant.id, "instagram", contact, consent, `Instagram ${incoming.id}`);
       if (consent === "opted_out") return;
@@ -85,8 +92,8 @@ export async function procesarMensajeInstagram(tenant: Tenant, incoming: Instagr
       return;
     }
 
-    // Agrupa mensajes consecutivos de la misma persona sin bloquear otras conversaciones.
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    // Short coalescing window; different conversations run independently.
+    await new Promise((resolve) => setTimeout(resolve, 250));
     if (latestMessageByConversation.get(conversationKey) !== incoming.id) return;
 
     const historialCompleto = await obtenerHistorialOptimizado(cliente.id, {
@@ -96,10 +103,27 @@ export async function procesarMensajeInstagram(tenant: Tenant, incoming: Instagr
     const historial = historialCompleto.at(-1)?.rol === "cliente" ? historialCompleto.slice(0, -1) : historialCompleto;
     if (cliente.estado === "requiere_humano") return;
 
+    if (incoming.mediaType !== "text") {
+      try { messageText = await interpretInstagramMedia(incoming); }
+      catch {
+        const policy = await getRuntimePolicy(tenant.id);
+        if (shouldAutoSend(policy, incoming.id) && await tenantBotActivo(tenant.id)) {
+          await sendInstagramText(incoming.senderId, "No pude leer ese archivo. ¿Puedes escribir tu consulta o enviarlo de nuevo?");
+        }
+        return;
+      }
+      const { error: transcriptError } = await supabase.from("mensajes").update({ contenido: messageText }).eq("tenant_id", tenant.id).eq("id", saved);
+      if (transcriptError) throw new Error("instagram_media_history_failed");
+    }
+
     const startedAt = Date.now();
     let answer: Awaited<ReturnType<typeof generarRespuesta>> | null = null;
     try {
-      answer = await conTimeout(generarRespuesta(tenant, cliente, historial, incoming.text), 45_000, "generarRespuestaInstagram");
+      const { data: configuredRules, error: rulesError } = await supabase.from("instagram_rules").select("rules").eq("tenant_id", tenant.id).maybeSingle();
+      if (rulesError) throw new Error("instagram_rules_unavailable");
+      const rules = instagramRulesSchema.parse(configuredRules?.rules ?? []);
+      const fastReply = guardScope(tenant, messageText) ?? guardSensitiveAction(tenant, messageText) ?? matchInstagramRule(rules, messageText);
+      answer = fastReply ? { texto: guardOutput(tenant, fastReply), tokensEntrada: 0, tokensSalida: 0 } : await conTimeout(generarRespuesta(tenant, cliente, historial, messageText), 45_000, "generarRespuestaInstagram");
     } catch (error) {
       await queueFailure({
         tenantSlug: tenant.config.slug,
@@ -108,14 +132,15 @@ export async function procesarMensajeInstagram(tenant: Tenant, incoming: Instagr
         error,
         dedupeKey: `${tenant.config.slug}:instagram-ai:${incoming.id}`,
       }).catch(() => undefined);
-      return;
+      answer = { texto: "No pude completar tu consulta en este momento. ¿Puedes intentarlo de nuevo?", tokensEntrada: 0, tokensSalida: 0 };
     }
 
-    const text = answer?.texto.trim();
+    const text = answer?.texto.trim() ? guardOutput(tenant, answer.texto.trim()) : "";
     if (!text) return;
     const policy = await getRuntimePolicy(tenant.id);
     if (!shouldAutoSend(policy, incoming.id)) return;
     if (!(await tenantBotActivo(tenant.id))) return;
+    if (await isOptedOut(tenant.id, "instagram", contact) || await isConversationHuman(tenant.id, "instagram", cliente.id)) return;
 
     try {
       await sendInstagramText(incoming.senderId, text);
@@ -146,5 +171,7 @@ export async function procesarMensajeInstagram(tenant: Tenant, incoming: Instagr
     });
     await recordMetric({ tenantSlug: tenant.config.slug, source: "instagram", latencyMs: Date.now() - startedAt, tokens: Number(answer?.tokensEntrada ?? 0) + Number(answer?.tokensSalida ?? 0) }).catch(() => undefined);
     await recordUsage(tenant.id, "instagram", { messages: 1, inputTokens: answer?.tokensEntrada, outputTokens: answer?.tokensSalida, costUsd }).catch(() => undefined);
+  }).finally(() => {
+    if (latestMessageByConversation.get(conversationKey) === incoming.id) latestMessageByConversation.delete(conversationKey);
   });
 }

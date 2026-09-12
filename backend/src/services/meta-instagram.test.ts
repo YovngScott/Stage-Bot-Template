@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import crypto from "node:crypto";
+import { instagramContext } from "./instagram-context.js";
+import { allowedInstagramMediaUrl } from "./instagram-media.js";
+import { matchInstagramRule } from "./instagram-rules.js";
 import {
   instagramMessageDetailsEndpoint,
   instagramConversationsEndpoint,
@@ -21,6 +24,27 @@ test("normaliza DMs y excluye los ecos del bot", () => {
     { sender: { id: "person" }, recipient: { id: "account" }, message: { mid: "one", text: "Duplicado" } },
   ] }] });
   assert.deepEqual(messages, [{ id: "one", senderId: "person", recipientId: "account", text: "Hola", mediaType: "text" }]);
+});
+
+test("conexiones concurrentes no mezclan destinatarios ni proveedor", async () => {
+  await Promise.all(["one", "two"].map(accountId => instagramContext.run({ accountId, accessToken: "test", provider: accountId === "one" ? "instagram" : "facebook" }, async () => {
+    await new Promise(resolve => setTimeout(resolve, accountId === "one" ? 10 : 1));
+    assert.equal(isConfiguredInstagramRecipient(accountId), true);
+    assert.equal(isConfiguredInstagramRecipient(accountId === "one" ? "two" : "one"), false);
+    assert.ok(instagramMessagesEndpoint(accountId, "v26.0").includes(accountId === "one" ? "graph.instagram.com" : "graph.facebook.com"));
+  })));
+});
+
+test("adjuntos rechazan hosts ajenos, credenciales y puertos alternativos", () => {
+  assert.equal(allowedInstagramMediaUrl("https://scontent.cdninstagram.com/photo"), true);
+  for (const url of ["http://scontent.cdninstagram.com/p", "https://cdninstagram.com.attacker.com/p", "https://127.0.0.1/p", "https://user@fbcdn.net/p", "https://fbcdn.net:8080/p"]) assert.equal(allowedInstagramMediaUrl(url), false);
+});
+
+test("reglas respetan límites de palabras, acentos y desactivación", () => {
+  const rule = { id: "price", enabled: true, keywords: ["información"], match: "word" as const, reply: "Nuestros servicios" };
+  assert.equal(matchInstagramRule([rule], "Quiero INFORMACION!"), "Nuestros servicios");
+  assert.equal(matchInstagramRule([rule], "desinformacion"), null);
+  assert.equal(matchInstagramRule([{ ...rule, enabled: false }], "informacion"), null);
 });
 
 test("normaliza el formato field/value usado por la prueba de Meta", () => {

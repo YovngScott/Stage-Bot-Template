@@ -7,6 +7,8 @@ build/
 *.log
 .DS_Store
 coverage/
+supabase/.temp/
+backend/client-dashboard/qa/artifacts/
 .vite/
 *.tsbuildinfo
 google-credentials.json

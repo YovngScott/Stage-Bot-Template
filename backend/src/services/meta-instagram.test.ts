@@ -3,7 +3,10 @@ import test from "node:test";
 import crypto from "node:crypto";
 import {
   instagramMessageDetailsEndpoint,
+  instagramConversationsEndpoint,
   instagramMessagesEndpoint,
+  findInstagramMessageInConversations,
+  isConfiguredInstagramRecipient,
   parseInstagramMessageEdits,
   parseInstagramMessages,
   summarizeInstagramWebhook,
@@ -85,6 +88,27 @@ test("recupera los detalles de una edición desde el Graph de Instagram", () => 
     instagramMessageDetailsEndpoint("mid/with spaces", "v26.0"),
     "https://graph.instagram.com/v26.0/mid%2Fwith%20spaces?fields=id%2Cmessage%2Cfrom%2Cto",
   );
+});
+
+test("usa la bandeja de conversaciones como respaldo para una edición reducida", () => {
+  assert.equal(
+    instagramConversationsEndpoint("account/id", "v26.0"),
+    "https://graph.instagram.com/v26.0/account%2Fid/conversations?platform=instagram&limit=25&fields=participants%2Cmessages.limit%2825%29%7Bid%2Cfrom%2Cto%2Cmessage%7D",
+  );
+  assert.deepEqual(
+    findInstagramMessageInConversations({ data: [{ messages: { data: [
+      { id: "mid-1", from: { id: "person" }, message: "Mensaje recuperado" },
+    ] } }] }, "mid-1", "business-account"),
+    { id: "mid-1", senderId: "person", recipientId: "business-account", text: "Mensaje recuperado", mediaType: "text" },
+  );
+});
+
+test("acepta únicamente los dos identificadores autorizados del mismo buzón", () => {
+  process.env.META_INSTAGRAM_ACCOUNT_ID = "business-account";
+  process.env.META_INSTAGRAM_WEBHOOK_RECIPIENT_ID = "login-account";
+  assert.equal(isConfiguredInstagramRecipient("business-account"), true);
+  assert.equal(isConfiguredInstagramRecipient("login-account"), true);
+  assert.equal(isConfiguredInstagramRecipient("other-account"), false);
 });
 
 test("el diagnóstico de webhooks no expone contenido ni identificadores", () => {

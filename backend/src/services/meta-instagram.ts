@@ -51,6 +51,21 @@ export interface InstagramMessageEditReference {
 }
 
 /**
+ * Meta puede identificar el mismo buzón con el ID de cuenta profesional o
+ * con el ID entregado por Instagram Login en el webhook. Ambos se validan
+ * explícitamente; ningún otro destinatario queda autorizado.
+ */
+export function isConfiguredInstagramRecipient(recipientId: string): boolean {
+  const configuredAccount = process.env.META_INSTAGRAM_ACCOUNT_ID?.trim();
+  const webhookRecipient = process.env.META_INSTAGRAM_WEBHOOK_RECIPIENT_ID?.trim();
+  return Boolean(
+    recipientId &&
+      configuredAccount &&
+      (recipientId === configuredAccount || (webhookRecipient && recipientId === webhookRecipient)),
+  );
+}
+
+/**
  * Describe solo la forma del webhook para diagnóstico. Nunca incluye IDs,
  * texto, timestamps, nombres de usuario ni valores de adjuntos.
  */
@@ -198,6 +213,37 @@ export function instagramMessageDetailsEndpoint(messageId: string, version: stri
   return `https://graph.instagram.com/${encodeURIComponent(version)}/${encodeURIComponent(messageId)}?${query.toString()}`;
 }
 
+export function instagramConversationsEndpoint(accountId: string, version: string): string {
+  const query = new URLSearchParams({
+    platform: "instagram",
+    limit: "25",
+    fields: "participants,messages.limit(25){id,from,to,message}",
+  });
+  return `https://graph.instagram.com/${encodeURIComponent(version)}/${encodeURIComponent(accountId)}/conversations?${query.toString()}`;
+}
+
+/** Encuentra un mensaje en la bandeja cuando el webhook solo aporta su mid. */
+export function findInstagramMessageInConversations(
+  payload: unknown,
+  messageId: string,
+  recipientId: string,
+): InstagramIncomingMessage | null {
+  const conversations = (payload as { data?: unknown[] } | null)?.data;
+  if (!Array.isArray(conversations)) return null;
+  for (const conversation of conversations) {
+    const messages = (conversation as { messages?: { data?: unknown[] } } | null)?.messages?.data;
+    if (!Array.isArray(messages)) continue;
+    for (const message of messages) {
+      const item = message as { id?: unknown; message?: unknown; from?: { id?: unknown } } | null;
+      if (String(item?.id ?? "").trim() !== messageId) continue;
+      const senderId = String(item?.from?.id ?? "").trim();
+      const text = String(item?.message ?? "").trim();
+      if (senderId && text) return { id: messageId, senderId, recipientId, text, mediaType: "text" };
+    }
+  }
+  return null;
+}
+
 /**
  * Recupera el contenido de una edición reducida usando el mid firmado por Meta.
  * El token limita la consulta a mensajes accesibles por la cuenta conectada.
@@ -213,21 +259,27 @@ export async function resolveInstagramMessageEdit(reference: InstagramMessageEdi
     15_000,
     "meta-instagram-message-details",
   );
-  if (!response.ok) {
-    throw new Error(`Meta Instagram no permitió recuperar el mensaje editado (${response.status}).`);
-  }
-  const details = await response.json() as {
-    id?: unknown;
-    message?: unknown;
-    from?: { id?: unknown };
-  };
-  const senderId = String(details.from?.id ?? "").trim();
-  const text = String(details.message ?? "").trim();
-  if (!senderId || !text) {
-    throw new Error("Meta Instagram devolvió una edición sin remitente o sin texto.");
-  }
   const id = reference.editNumber > 0 ? `${reference.id}:edit:${reference.editNumber}` : reference.id;
-  return { id, senderId, recipientId: accountId, text, mediaType: "text" };
+  if (response.ok) {
+    const details = await response.json() as { message?: unknown; from?: { id?: unknown } };
+    const senderId = String(details.from?.id ?? "").trim();
+    const text = String(details.message ?? "").trim();
+    if (senderId && text) return { id, senderId, recipientId: accountId, text, mediaType: "text" };
+  }
+
+  // Instagram Login puede devolver un message_edit reducido y ocultar los
+  // detalles por MID. La conversación sí conserva el mensaje recién recibido.
+  const conversationsResponse = await conTimeout(
+    fetch(instagramConversationsEndpoint(accountId, version), { headers: { authorization: `Bearer ${token}` } }),
+    15_000,
+    "meta-instagram-conversations",
+  );
+  if (!conversationsResponse.ok) {
+    throw new Error(`Meta Instagram no permitió recuperar el mensaje editado (${conversationsResponse.status}).`);
+  }
+  const resolved = findInstagramMessageInConversations(await conversationsResponse.json(), reference.id, accountId);
+  if (!resolved) throw new Error("Meta Instagram devolvió una edición sin remitente o sin texto.");
+  return { ...resolved, id };
 }
 
 /** Envía una respuesta dentro de la ventana de mensajería autorizada por Meta. */

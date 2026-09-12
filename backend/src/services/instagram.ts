@@ -4,7 +4,7 @@ import { conTimeout } from "../lib/timeout.js";
 import { tenantBotActivo } from "../lib/tenants.js";
 import { guardarMensaje, obtenerHistorialOptimizado, obtenerOCrearCliente } from "./clientes.js";
 import { generarRespuesta } from "./ia.js";
-import { sendInstagramText, type InstagramIncomingMessage } from "./meta-instagram.js";
+import { isConfiguredInstagramRecipient, sendInstagramText, type InstagramIncomingMessage } from "./meta-instagram.js";
 import { queueFailure, recordMetric } from "./operations.js";
 import {
   checkUsage,
@@ -33,8 +33,7 @@ function enqueue(key: string, work: () => Promise<void>): Promise<void> {
 }
 
 export async function procesarMensajeInstagram(tenant: Tenant, incoming: InstagramIncomingMessage): Promise<void> {
-  const configuredAccount = process.env.META_INSTAGRAM_ACCOUNT_ID?.trim();
-  if (!configuredAccount || configuredAccount !== incoming.recipientId) {
+  if (!isConfiguredInstagramRecipient(incoming.recipientId)) {
     throw new Error("El evento no pertenece a la cuenta de Instagram configurada para este bot.");
   }
   const conversationKey = `${tenant.id}:instagram:${incoming.senderId}`;

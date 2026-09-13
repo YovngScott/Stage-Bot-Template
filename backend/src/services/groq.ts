@@ -81,7 +81,7 @@ async function llamarGroq(
     if (res.status === 429 && !ultimo) {
       const m = cuerpo.match(/try again in ([\d.]+)s/i);
       const espera = m ? Math.ceil(parseFloat(m[1]) * 1000) + 500 : 0;
-      if (espera <= 3500) {
+      if (espera > 0 && espera <= 12_000) {
         console.warn(`[groq] 429 (límite breve), esperando ${espera}ms y reintentando…`);
         await new Promise((r) => setTimeout(r, espera));
         continue;

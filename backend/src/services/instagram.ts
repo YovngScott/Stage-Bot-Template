@@ -125,6 +125,10 @@ export async function procesarMensajeInstagram(tenant: Tenant, incoming: Instagr
       const fastReply = guardScope(tenant, messageText) ?? guardSensitiveAction(tenant, messageText) ?? matchInstagramRule(rules, messageText);
       answer = fastReply ? { texto: guardOutput(tenant, fastReply), tokensEntrada: 0, tokensSalida: 0 } : await conTimeout(generarRespuesta(tenant, cliente, historial, messageText), 45_000, "generarRespuestaInstagram");
     } catch (error) {
+      const causes = error instanceof AggregateError ? error.errors : [error];
+      console.error("[instagram] Fallo del proveedor:", causes.map(cause =>
+        (cause instanceof Error ? cause.message : "unknown")
+          .replace(/(?:gsk_|sk-)[A-Za-z0-9_-]+/g, "[redacted]").slice(0, 500)));
       await queueFailure({
         tenantSlug: tenant.config.slug,
         source: "instagram",

@@ -9,9 +9,11 @@ import {
   summarizeInstagramWebhook,
   verifyInstagramChallenge,
   verifyInstagramSignature,
+  isConfiguredInstagramRecipient,
 } from "../services/meta-instagram.js";
 
 export const instagramRouter = Router({ mergeParams: true });
+const recentNormalMessages = new Map<string, number>();
 
 instagramRouter.get("/webhook", (req: Request, res: Response) => {
   const challenge = verifyInstagramChallenge(req.query["hub.mode"], req.query["hub.verify_token"], req.query["hub.challenge"]);
@@ -38,9 +40,21 @@ instagramRouter.post("/webhook", async (req: Request, res: Response) => {
   }
   res.sendStatus(200);
   instagramContext.run(connection, () => {
+  const now = Date.now();
+  for (const [key, time] of recentNormalMessages) if (now - time > 10_000) recentNormalMessages.delete(key);
+  const keyFor = (message: typeof messages[number]) => JSON.stringify([tenant.id, message.senderId, message.text]);
+  const ownedMessages = messages.filter(message => isConfiguredInstagramRecipient(message.recipientId));
+  for (const message of ownedMessages) recentNormalMessages.set(keyFor(message), now);
   const work = [
-    ...messages.map((message) => procesarMensajeInstagram(tenant, message)),
-    ...edits.map(async (edit) => procesarMensajeInstagram(tenant, await resolveInstagramMessageEdit(edit))),
+    ...ownedMessages.map((message) => procesarMensajeInstagram(tenant, message)),
+    ...edits.map(async (edit) => {
+      const message = await resolveInstagramMessageEdit(edit);
+      // Meta may deliver the same incoming content under a second MID in a
+      // zero-edit hydration event. Only suppress that shadow of a normal DM;
+      // genuine edits and repeated normal DMs remain eligible.
+      if (edit.editNumber === 0 && Date.now() - (recentNormalMessages.get(keyFor(message)) ?? 0) < 10_000) return;
+      return procesarMensajeInstagram(tenant, message);
+    }),
   ];
   void Promise.allSettled(work).then((results) => {
     for (const result of results) {

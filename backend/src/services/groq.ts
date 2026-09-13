@@ -52,7 +52,7 @@ function historialAMensajes(historial: Mensaje[]): MensajeGroq[] {
 async function llamarGroq(
   mensajes: MensajeGroq[],
   credenciales: { apiKey: string; model: string },
-  intentos = 4,
+  intentos = 2,
 ): Promise<any> {
   for (let i = 0; i < intentos; i++) {
     // Timeout duro: si Groq no responde en 25s, abortamos la petición para no
@@ -69,7 +69,7 @@ async function llamarGroq(
         temperature: 0.2,
         max_completion_tokens: 1024,
         ...(credenciales.model.startsWith("openai/gpt-oss")
-          ? { reasoning_effort: "medium", include_reasoning: false }
+          ? { reasoning_effort: "low", include_reasoning: false }
           : {}),
       }),
       signal: AbortSignal.timeout(25000),
@@ -81,7 +81,7 @@ async function llamarGroq(
     if (res.status === 429 && !ultimo) {
       const m = cuerpo.match(/try again in ([\d.]+)s/i);
       const espera = m ? Math.ceil(parseFloat(m[1]) * 1000) + 500 : 0;
-      if (espera > 0 && espera <= 12_000) {
+      if (espera > 0 && espera <= 18_000) {
         console.warn(`[groq] 429 (límite breve), esperando ${espera}ms y reintentando…`);
         await new Promise((r) => setTimeout(r, espera));
         continue;

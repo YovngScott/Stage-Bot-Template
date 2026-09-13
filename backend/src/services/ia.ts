@@ -38,9 +38,9 @@ export async function generarRespuesta(
       ...(await conGroq(tenant, cliente, historial, mensaje)),
       provider: "groq",
     }));
-    if (config.groq.fallbackApiKey && config.groq.fallbackApiKey !== config.groq.apiKey) {
+    if ((config.groq.fallbackApiKey && config.groq.fallbackApiKey !== config.groq.apiKey) || config.groq.fallbackModel !== config.groq.model) {
       providers.push(async () => ({
-        ...(await conGroq(tenant, cliente, historial, mensaje, { apiKey: config.groq.fallbackApiKey, model: config.groq.fallbackModel })),
+        ...(await conGroq(tenant, cliente, historial, mensaje, { apiKey: config.groq.fallbackApiKey || config.groq.apiKey, model: config.groq.fallbackModel })),
         provider: "groq",
       }));
     }

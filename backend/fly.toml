@@ -20,6 +20,7 @@ primary_region = 'dfw'
   # Los demás bots se provisionan en sus propias apps desde Owner Console.
   TENANT_SLUGS = 'stage-ai-labs-sales-bot'
   META_INSTAGRAM_LEGACY_TENANT_SLUG = 'stage-ai-labs-sales-bot'
+  GROQ_FALLBACK_MODEL = 'openai/gpt-oss-20b'
 
 [[mounts]]
   source = 'bot_data'
